@@ -32,7 +32,7 @@ use crate::icons_system::*;
 use crate::import::*;
 use crate::models::*;
 use crate::paths::*;
-use crate::steam::*;
+use crate::scan::*;
 use crate::storage::*;
 
 
@@ -104,10 +104,10 @@ pub(crate) fn resolve_path_inner(entry: &Entry, current_env_id: &str) -> Result<
         });
     }
 
-    // Steam 游戏：解析游戏 exe 路径（存于 absolute_paths），存在性即有效性；
-    // 启动链接存在即可视有效，exe 缺失（如未下载完）不阻断启动
-    if entry.entry_type == "steam" {
-        // 优先解析 exe 路径（「直接启动 exe」/「目录」定位/图标提取都依赖它）
+    // 平台游戏：优先解析 exe 路径（「直接运行程序」/「目录」定位/图标提取都依赖它），
+    // 存在性即有效性；启动链接（steam:// 等平台协议）存在即可视有效，exe 缺失不阻断启动
+    if entry.entry_type == "provider" {
+        // 优先解析 exe 路径（「直接运行程序」/「目录」定位/图标提取都依赖它）
         if let Some(abs_path) = entry.absolute_paths.get(current_env_id) {
             if !abs_path.is_empty() {
                 let exists = Path::new(abs_path).exists();
@@ -123,7 +123,7 @@ pub(crate) fn resolve_path_inner(entry: &Entry, current_env_id: &str) -> Result<
                 });
             }
         }
-        // 无 exe 路径：回落到启动链接（steam:// 协议恒有效）
+        // 无 exe 路径：回落到启动链接（平台协议恒有效）
         return Ok(PathInfo {
             resolved: entry.url.clone(),
             exists: !entry.url.is_empty(),
@@ -258,12 +258,9 @@ pub fn launch_program(entry: Entry, current_env_id: String) -> Result<bool, Stri
         return shell_execute_open(entry.url.trim(), None, false, SW_SHOWNORMAL.0);
     }
 
-    // Steam 游戏：启动链接（steam://rungameid/{appid}）经系统协议唤起 Steam 客户端
-    // （「直接启动 exe」由前端构造临时 program 条目走下方的程序分支）
-    if entry.entry_type == "steam" {
-        if entry.url.is_empty() {
-            return Err("Steam 启动链接为空".to_string());
-        }
+    // 平台游戏：url 非空走平台协议（steam:// 等由系统唤起对应客户端），
+    // 「直接运行程序」由前端构造临时 program 条目走下方的程序分支
+    if entry.entry_type == "provider" && !entry.url.trim().is_empty() {
         return shell_execute_open(entry.url.trim(), None, false, SW_SHOWNORMAL.0);
     }
 

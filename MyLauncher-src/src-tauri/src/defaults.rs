@@ -32,7 +32,7 @@ use crate::import::*;
 use crate::launch::*;
 use crate::models::*;
 use crate::paths::*;
-use crate::steam::*;
+use crate::scan::*;
 use crate::storage::*;
 
 
@@ -130,6 +130,7 @@ pub(crate) fn default_config() -> AppConfig {
         card_cover_ratio: default_card_cover_ratio(),
         masonry_max_height: default_masonry_max_height(),
         language: default_language(),
+        disabled_plugins: Vec::new(),
     }
 }
 

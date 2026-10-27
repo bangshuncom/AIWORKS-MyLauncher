@@ -14,6 +14,7 @@ const emit = defineEmits<{
 const scanPath = ref('')
 const scanning = ref(false)
 const scanResults = ref<ExeInfo[]>([])
+const scanWarnings = ref<string[]>([])
 const selectedIds = ref<Set<string>>(new Set())
 const targetCategoryId = ref(state.currentCategoryId || 'cat_001')
 
@@ -98,6 +99,7 @@ async function scan() {
   if (!scanPath.value) return
   scanning.value = true
   scanResults.value = []
+  scanWarnings.value = []
   selectedIds.value.clear()
 
   // 显示进度弹层并监听后端 scan-progress 事件
@@ -119,8 +121,8 @@ async function scan() {
 
     const result = await api.scan_directory(scanPath.value, 3)
     scanResults.value = result.results
-    // 默认选中策略：Steam 多 exe 游戏只选中主程序（红色提示用户自行勾选其余），
-    // 其余（普通程序/单 exe Steam 游戏）全选
+    scanWarnings.value = result.warnings || []
+    // 默认选中策略：多 exe 条目只选中主程序（红色提示用户自行勾选其余），其余全选
     result.results.forEach(r => {
       if (r.multi_exe && !r.is_primary) return
       const id = `${r.name}_${r.absolute_path}`
@@ -226,6 +228,11 @@ async function importSelected() {
           </button>
         </div>
 
+        <!-- 扫描警告（插件超时/目录不可访问等，不影响其余结果） -->
+        <div v-if="scanWarnings.length > 0" class="scan-warnings">
+          <div v-for="(w, i) in scanWarnings" :key="i" class="scan-warning-item">⚠ {{ w }}</div>
+        </div>
+
         <!-- 扫描结果 -->
         <div v-if="scanResults.length > 0" class="scan-results">
           <div class="scan-results-toolbar">
@@ -247,12 +254,12 @@ async function importSelected() {
               <div v-else class="scan-item-icon-placeholder">{{ r.name.charAt(0) }}</div>
               <div class="scan-item-info">
                 <span class="scan-item-name">{{ r.name }}</span>
-                <span class="scan-item-path">{{ r.steam?.exe_path || r.absolute_path }}</span>
+                <span class="scan-item-path">{{ r.absolute_path }}</span>
                 <span v-if="r.multi_exe" class="scan-item-warn">
                   {{ r.is_primary ? '发现多个可执行程序，此为主程序' : '非主程序，按需勾选导入' }}
                 </span>
               </div>
-              <span v-if="r.steam" class="scan-item-mode steam-badge">Steam</span>
+              <span v-if="r.provider" class="scan-item-mode provider-badge">{{ r.provider.id }}</span>
               <span v-else class="scan-item-mode">{{ r.suggested_path_mode === 'relative' ? '相对' : '绝对' }}</span>
             </div>
           </div>
@@ -395,10 +402,27 @@ async function importSelected() {
   flex-shrink: 0;
 }
 
-.scan-item-mode.steam-badge {
+/* 平台条目徽标（通用深色底，无平台特判） */
+.scan-item-mode.provider-badge {
   color: #fff;
   background: #1b2838;
   font-weight: 600;
+}
+
+/* 扫描警告区 */
+.scan-warnings {
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.scan-warning-item {
+  font-size: 12px;
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
 }
 
 .scan-item-icon-placeholder {

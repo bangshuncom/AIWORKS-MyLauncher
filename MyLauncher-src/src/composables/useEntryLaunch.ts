@@ -1,6 +1,6 @@
 // ════════════════════════════════════════════
-// 条目启动：网址 / 程序 / Steam 游戏
-// Steam 支持两种启动方式（steam:// 协议 / 直接跑 exe），由调用方传入的弹窗状态驱动
+// 条目启动：网址 / 程序 / 平台游戏（provider）
+// 平台游戏支持两种启动方式（平台协议链接 / 直接跑主程序），由调用方传入的弹窗状态驱动
 // ════════════════════════════════════════════
 
 import type { Ref } from 'vue'
@@ -9,25 +9,25 @@ import { state, updateLastUsed } from '@/store'
 import type { Entry } from '@/types'
 import { useToast } from '@/composables/useToast'
 
-export interface SteamChoiceRefs {
-  showSteamChoiceDialog: Ref<boolean>
-  steamChoiceEntry: Ref<Entry | null>
+export interface ProviderChoiceRefs {
+  showProviderChoiceDialog: Ref<boolean>
+  providerChoiceEntry: Ref<Entry | null>
 }
 
-/** 有文件路径的类型（网址/系统功能/APPX 不显示「目录」；Steam 游戏定位到游戏 exe） */
+/** 有文件路径的类型（网址/系统功能/APPX 不显示「目录」；平台游戏定位到主程序） */
 export function hasFilePath(entry: Entry): boolean {
   return entry.type === 'program' || entry.type === 'folder' || entry.type === 'file'
-    || (entry.type === 'steam' && !!Object.values(entry.absolute_paths)[0])
+    || (entry.type === 'provider' && !!Object.values(entry.absolute_paths)[0])
 }
 
-export function useEntryLaunch(steam: SteamChoiceRefs) {
+export function useEntryLaunch(provider: ProviderChoiceRefs) {
   const { showToast } = useToast()
 
   async function handleLaunch(entry: Entry) {
-    // Steam 游戏条目：弹窗让用户选择启动方式（Steam 协议 / 直接启动 exe）
-    if (entry.type === 'steam') {
-      steam.steamChoiceEntry.value = entry
-      steam.showSteamChoiceDialog.value = true
+    // 平台游戏条目：主程序与协议链接并存时弹窗让用户选择启动方式
+    if (entry.type === 'provider' && entry.url && Object.values(entry.absolute_paths)[0]) {
+      provider.providerChoiceEntry.value = entry
+      provider.showProviderChoiceDialog.value = true
       return
     }
 
@@ -36,6 +36,18 @@ export function useEntryLaunch(steam: SteamChoiceRefs) {
       if (success) {
         await updateLastUsed(entry.id)
         showToast(`已打开: ${entry.name}`)
+      }
+      return
+    }
+
+    // 平台游戏仅有协议链接（无主程序）：直接走链接，不校验路径
+    if (entry.type === 'provider' && entry.url) {
+      const success = await api.launch_program(entry, state.currentEnvId)
+      if (success) {
+        await updateLastUsed(entry.id)
+        showToast(`已启动: ${entry.name}`)
+      } else {
+        showToast(`启动失败: ${entry.name}`)
       }
       return
     }
@@ -54,14 +66,14 @@ export function useEntryLaunch(steam: SteamChoiceRefs) {
     }
   }
 
-  /** 执行 Steam 游戏启动（按用户选择的方式） */
-  async function launchSteamGame(mode: 'steam' | 'exe') {
-    const entry = steam.steamChoiceEntry.value
-    steam.showSteamChoiceDialog.value = false
+  /** 执行平台游戏启动（按用户选择的方式） */
+  async function launchProviderEntry(mode: 'provider' | 'exe') {
+    const entry = provider.providerChoiceEntry.value
+    provider.showProviderChoiceDialog.value = false
     if (!entry) return
 
-    if (mode === 'steam') {
-      // 直接用原条目（url = steam://rungameid/{appid}）启动
+    if (mode === 'provider') {
+      // 直接用原条目（url = 平台协议链接）启动
       const success = await api.launch_program(entry, state.currentEnvId)
       if (success) {
         await updateLastUsed(entry.id)
@@ -72,11 +84,11 @@ export function useEntryLaunch(steam: SteamChoiceRefs) {
       return
     }
 
-    // exe 方式：条目 absolute_paths 中保存了游戏 exe 路径（导入时存入），
-    // 构造临时 program 条目直接启动 exe
+    // exe 方式：条目 absolute_paths 中保存了主程序路径（导入时存入），
+    // 构造临时 program 条目直接启动
     const exePath = Object.values(entry.absolute_paths)[0] || ''
     if (!exePath) {
-      showToast(`游戏路径未保存: ${entry.name}`)
+      showToast(`主程序路径未保存: ${entry.name}`)
       return
     }
     const proxyEntry: Entry = {
@@ -104,5 +116,5 @@ export function useEntryLaunch(steam: SteamChoiceRefs) {
     }
   }
 
-  return { handleLaunch, launchSteamGame, openInExplorer, hasFilePath }
+  return { handleLaunch, launchProviderEntry, openInExplorer, hasFilePath }
 }

@@ -8,7 +8,7 @@ import { state } from '@/store'
 import type { Entry } from '@/types'
 
 /** 有真实文件路径、需要检查是否失效的类型（网址/系统功能/APPX 恒有效） */
-const CHECKABLE_TYPES = new Set(['program', 'folder', 'file', 'steam'])
+const CHECKABLE_TYPES = new Set(['program', 'folder', 'file', 'provider'])
 
 export function usePathStatus(getEntries: () => Entry[]) {
   const pathStatusMap = ref<Map<string, boolean>>(new Map())

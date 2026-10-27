@@ -32,6 +32,7 @@ import { useEntryContextMenu } from '@/composables/useEntryContextMenu'
 import { useI18n } from '@/composables/useI18n'
 import { initI18n } from '@/i18n'
 import { set_window_title } from '@/api'
+import * as api from '@/api'
 import { toggleInSet } from '@/utils/toggleInSet'
 
 // ─── 初始化 ───
@@ -46,7 +47,7 @@ const {
   showEnvManager, showCatManager, showScanDialog, showBookmarkDialog,
   showSettingsDialog, showAboutDialog,
   deleteCatId, catManagerEditId, catManagerNewParentId,
-  showSteamChoiceDialog, steamChoiceEntry,
+  showProviderChoiceDialog, providerChoiceEntry,
 } = dialogs
 
 const currentEntries = computed(() => getCurrentEntries())
@@ -55,9 +56,21 @@ const currentCategory = computed(() => getCurrentCategory())
 // ─── 路径状态检查 ───
 const { pathStatusMap, refreshPathStatus } = usePathStatus(() => currentEntries.value)
 
-// ─── 条目启动（含 Steam 双方式选择）───
-const { handleLaunch, launchSteamGame, openInExplorer, hasFilePath } = useEntryLaunch({
-  showSteamChoiceDialog, steamChoiceEntry,
+// ─── 条目启动（含平台游戏双方式选择）───
+const { handleLaunch, launchProviderEntry, openInExplorer, hasFilePath } = useEntryLaunch({
+  showProviderChoiceDialog, providerChoiceEntry,
+})
+
+// 平台名（启动弹窗文案用）：从插件列表查显示名，查不到用 id
+const providerName = ref('')
+watch(providerChoiceEntry, async (entry) => {
+  if (!entry?.provider) { providerName.value = ''; return }
+  try {
+    const plugins = await api.list_plugins()
+    providerName.value = plugins.find(p => p.id === entry.provider!.id)?.name || entry.provider.id
+  } catch {
+    providerName.value = entry.provider.id
+  }
 })
 
 // ─── 拖拽收录 ───
@@ -305,24 +318,24 @@ onMounted(async () => {
       @close="showScanDialog = false"
       @scanned="refreshPathStatus"
     />
-    <!-- Steam 启动方式选择弹窗 -->
-    <div class="dialog-overlay" v-if="showSteamChoiceDialog" @click.self="showSteamChoiceDialog = false">
-      <div class="dialog steam-choice-dialog">
+    <!-- 平台游戏启动方式选择弹窗 -->
+    <div class="dialog-overlay" v-if="showProviderChoiceDialog" @click.self="showProviderChoiceDialog = false">
+      <div class="dialog provider-choice-dialog">
         <div class="dialog-header">
-          <span>{{ t('main.steamChoice.title') }}</span>
-          <button class="btn btn-icon" @click="showSteamChoiceDialog = false">✕</button>
+          <span>{{ t('main.providerChoice.title') }}</span>
+          <button class="btn btn-icon" @click="showProviderChoiceDialog = false">✕</button>
         </div>
         <div class="dialog-body">
-          <p class="steam-choice-title">{{ steamChoiceEntry?.name }}</p>
-          <p class="steam-choice-tip">{{ t('main.steamChoice.tip') }}</p>
-          <div class="steam-choice-buttons">
-            <button class="btn steam-choice-btn" @click="launchSteamGame('steam')">
-              <span class="steam-choice-btn-title">{{ t('main.steamChoice.viaSteam') }}</span>
-              <span class="steam-choice-btn-desc">{{ t('main.steamChoice.viaSteamDesc') }}</span>
+          <p class="provider-choice-title">{{ providerChoiceEntry?.name }}</p>
+          <p class="provider-choice-tip">{{ t('main.providerChoice.tip') }}</p>
+          <div class="provider-choice-buttons">
+            <button class="btn provider-choice-btn" @click="launchProviderEntry('provider')">
+              <span class="provider-choice-btn-title">{{ t('main.providerChoice.viaProvider', { name: providerName }) }}</span>
+              <span class="provider-choice-btn-desc">{{ t('main.providerChoice.viaProviderDesc', { name: providerName }) }}</span>
             </button>
-            <button class="btn steam-choice-btn" @click="launchSteamGame('exe')">
-              <span class="steam-choice-btn-title">{{ t('main.steamChoice.viaExe') }}</span>
-              <span class="steam-choice-btn-desc">{{ t('main.steamChoice.viaExeDesc') }}</span>
+            <button class="btn provider-choice-btn" @click="launchProviderEntry('exe')">
+              <span class="provider-choice-btn-title">{{ t('main.providerChoice.viaExe') }}</span>
+              <span class="provider-choice-btn-desc">{{ t('main.providerChoice.viaExeDesc') }}</span>
             </button>
           </div>
         </div>
@@ -453,29 +466,29 @@ onMounted(async () => {
 }
 
 /* Steam 启动方式选择弹窗 */
-.steam-choice-dialog {
+.provider-choice-dialog {
   width: 420px;
 }
 
-.steam-choice-title {
+.provider-choice-title {
   font-size: 15px;
   font-weight: 600;
   margin: 0 0 4px;
 }
 
-.steam-choice-tip {
+.provider-choice-tip {
   font-size: 12px;
   color: var(--color-text-tertiary);
   margin: 0 0 16px;
 }
 
-.steam-choice-buttons {
+.provider-choice-buttons {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.steam-choice-btn {
+.provider-choice-btn {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -484,17 +497,17 @@ onMounted(async () => {
   text-align: left;
 }
 
-.steam-choice-btn:hover {
+.provider-choice-btn:hover {
   border-color: var(--color-primary);
   background: var(--color-primary-bg);
 }
 
-.steam-choice-btn-title {
+.provider-choice-btn-title {
   font-size: 13px;
   font-weight: 600;
 }
 
-.steam-choice-btn-desc {
+.provider-choice-btn-desc {
   font-size: 11px;
   color: var(--color-text-tertiary);
   font-weight: 400;

@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { state, addEntry, updateEntry, resolveAssetUrl, bumpIconVersion, createEntryDraft } from '@/store'
 import * as api from '@/api'
-import type { Entry, EntryType } from '@/types'
+import type { Entry, EntryType, PluginInfo, ProviderInfo } from '@/types'
 import { pickAndCopyImage } from '@/composables/useAssetImagePicker'
 import PathModeFields from '@/components/PathModeFields.vue'
 import SystemAppPicker, { type SystemAppSelection } from '@/components/dialogs/SystemAppPicker.vue'
@@ -21,7 +21,7 @@ const emit = defineEmits<{
   (e: 'saved'): void
 }>()
 
-/** 七种类型的展示信息 */
+/** 七种类型的展示信息（平台游戏由插件动态提供平台列表） */
 const TYPE_OPTIONS: { value: EntryType; label: string; icon: string }[] = [
   { value: 'program', label: '程序', icon: '📦' },
   { value: 'url', label: '网址', icon: '🌐' },
@@ -29,7 +29,7 @@ const TYPE_OPTIONS: { value: EntryType; label: string; icon: string }[] = [
   { value: 'file', label: '文件', icon: '📄' },
   { value: 'system', label: '系统功能', icon: '🛠️' },
   { value: 'appx', label: 'APPX 应用', icon: '🏪' },
-  { value: 'steam', label: 'Steam 游戏', icon: '🎮' },
+  { value: 'provider', label: '平台游戏', icon: '🎮' },
 ]
 
 function typeLabel(type: EntryType): string {
@@ -58,9 +58,7 @@ function openSystemPicker() {
 // ─── 旧数据类型自动纠正 ───
 // 早期版本把系统功能/APPX 存为 program 类型（目标存 relative_path），
 // 编辑时按目标前缀识别真实类型并纠正，保存后即持久化为正确类型
-// 旧版 Steam 扫描导入的条目为 url 类型（url 以 steam://rungameid/ 开头），同样纠正为 steam
 function correctLegacyType(e: Entry): EntryType {
-  if (e.type === 'url' && e.url.toLowerCase().startsWith('steam://rungameid/')) return 'steam'
   if (e.type !== 'program') return e.type
   const t = e.relative_path?.trim() || ''
   if (t.toLowerCase().startsWith('shell:appsfolder')) return 'appx'
@@ -120,6 +118,7 @@ function loadEntry() {
       window_style: e.window_style as any,
       run_as_admin: e.run_as_admin,
       url: e.url,
+      provider: e.provider ?? null,
       update_url: e.update_url || '',
       icon: { ...e.icon },
       icon_source: e.icon_source || '',
@@ -262,37 +261,69 @@ function clearCover() {
   form.value.cover = { enabled: false, source: '' }
 }
 
-// ─── Steam 游戏：按 ID 扫描 ───
+// ─── 平台游戏：按平台 ID 查询 ───
 
-const steamAppId = ref('')
-const scanningSteam = ref(false)
-const loadingSteamInfo = ref(false)
-/** 扫描成功后回显的游戏 exe 路径（来自 absolute_paths 当前环境值） */
-const steamExePath = computed(() => form.value.absolute_paths[state.currentEnvId] || '')
+/** 支持按 ID 查询的插件列表（平台下拉来源，来自 list_plugins，不含平台特判） */
+const providerPlugins = ref<PluginInfo[]>([])
+/** 全部插件（含已停用），仅用于给"当前条目所属平台已停用"兜底标注 */
+const allPlugins = ref<PluginInfo[]>([])
+const platformId = ref('')
+const providerItemId = ref('')
+const scanningProvider = ref(false)
+const loadingProviderInfo = ref(false)
+/** 查询成功后回显的主程序路径（来自 absolute_paths 当前环境值） */
+const providerExePath = computed(() => form.value.absolute_paths[state.currentEnvId] || '')
 
-// 编辑已有条目时，从启动链接 steam://rungameid/{appid} 提取 ID 回显
-watch(() => form.value.url, (url) => {
-  const m = url?.match(/^steam:\/\/rungameid\/(\d+)/i)
-  if (m) steamAppId.value = m[1]
+onMounted(async () => {
+  try {
+    const plugins = await api.list_plugins()
+    allPlugins.value = plugins
+    // 平台下拉只列「可用且未停用」的插件：停用后不再新增该平台的条目
+    providerPlugins.value = plugins.filter(
+      p => p.status === 'ok' && p.capabilities.includes('scan_id') && p.enabled
+    )
+  } catch { /* 插件列表获取失败按无插件处理 */ }
+})
+
+// 编辑已有平台条目时，回显平台与条目 ID
+watch(() => [form.value.type, form.value.provider], () => {
+  if (form.value.type === 'provider' && form.value.provider) {
+    platformId.value = form.value.provider.id
+    providerItemId.value = form.value.provider.item_id
+  }
 }, { immediate: true })
 
-/** 按 ID 扫描 Steam 游戏：回填名称/启动链接/游戏 exe 路径/封面/图标 */
-async function scanSteamApp() {
-  const id = steamAppId.value.trim()
-  if (!id) {
-    error.value = '请输入 Steam 游戏 ID'
+/** 平台下拉选项：已装且启用的插件 + 编辑旧条目时插件已卸载/已停用的情况
+ *  （保留原 id 并标注，不能因为插件不在就悄悄把条目的平台改掉） */
+const platformOptions = computed(() => {
+  const opts = providerPlugins.value.map(p => ({ id: p.id, name: p.name, installed: true }))
+  const current = form.value.provider?.id
+  if (form.value.type === 'provider' && current && !opts.some(o => o.id === current)) {
+    const known = allPlugins.value.find(p => p.id === current && p.status === 'ok')
+    const label = known ? `${known.name}（已停用）` : `${current}（未安装）`
+    opts.push({ id: current, name: label, installed: false })
+  }
+  return opts
+})
+
+/** 按 ID 查询平台条目：回填名称/启动链接/主程序路径/封面/图标 */
+async function scanProviderItem() {
+  const id = providerItemId.value.trim()
+  if (!platformId.value) {
+    error.value = '请先选择平台（需已安装对应扫描插件）'
     return
   }
-  if (!/^\d+$/.test(id)) {
-    error.value = '游戏 ID 应为纯数字（Steam 商店页 URL 中的 appid）'
+  if (!id) {
+    error.value = '请输入平台条目 ID'
     return
   }
   error.value = ''
-  scanningSteam.value = true
+  scanningProvider.value = true
   try {
-    const r = await api.scan_steam_app(id)
+    const r = await api.scan_provider_item(platformId.value, id)
     form.value.name = r.name || form.value.name
-    form.value.url = `steam://rungameid/${id}`
+    form.value.url = r.launch_url
+    form.value.provider = { id: platformId.value, item_id: id } as ProviderInfo
     form.value.absolute_paths = r.exe_path
       ? { [state.currentEnvId]: r.exe_path }
       : {}
@@ -304,26 +335,20 @@ async function scanSteamApp() {
       form.value.icon = { type: 'extracted', source: r.icon_path }
     }
   } catch (e) {
-    error.value = `扫描失败: ${e}`
+    error.value = `查询失败: ${e}`
   } finally {
-    scanningSteam.value = false
+    scanningProvider.value = false
   }
 }
 
-/** 手动修改启动链接时，同步更新 ID 输入框（保持两者一致） */
-function onSteamUrlInput() {
-  const m = form.value.url.match(/^steam:\/\/rungameid\/(\d+)/i)
-  if (m) steamAppId.value = m[1]
-}
-
-/** 浏览选择 Steam 游戏主程序（仅设置 exe 路径与提取图标，不覆盖名称/启动链接） */
-async function pickSteamExe() {
+/** 浏览选择平台游戏主程序（仅设置 exe 路径与提取图标，不覆盖名称/启动链接） */
+async function pickProviderExe() {
   const path = await api.pick_file(
     [{ name: '程序文件', extensions: ['exe'] }],
-    steamExeDir.value || undefined
+    providerExeDir.value || undefined
   )
   if (!path) return
-  loadingSteamInfo.value = true
+  loadingProviderInfo.value = true
   try {
     const info = await api.get_exe_info(path)
     form.value.absolute_paths = { [state.currentEnvId]: info.absolute_path }
@@ -332,15 +357,15 @@ async function pickSteamExe() {
       form.value.icon = { type: 'extracted', source: info.icon_path }
     }
   } catch (e) {
-    error.value = `读取游戏程序信息失败: ${e}`
+    error.value = `读取主程序信息失败: ${e}`
   } finally {
-    loadingSteamInfo.value = false
+    loadingProviderInfo.value = false
   }
 }
 
-/** 游戏程序浏览初始目录：当前 exe 路径的父目录 */
-const steamExeDir = computed(() => {
-  const abs = steamExePath.value
+/** 主程序浏览初始目录：当前 exe 路径的父目录 */
+const providerExeDir = computed(() => {
+  const abs = providerExePath.value
   if (!abs || !/^[A-Za-z]:[\\/]/.test(abs)) return ''
   const idx = Math.max(abs.lastIndexOf('\\'), abs.lastIndexOf('/'))
   return idx > 2 ? abs.slice(0, idx) : ''
@@ -470,8 +495,8 @@ async function save() {
     error.value = '请输入网址'
     return
   }
-  if (form.value.type === 'steam' && !form.value.url.trim()) {
-    error.value = '请先输入游戏 ID 并扫描，或手动填写 Steam 启动链接'
+  if (form.value.type === 'provider' && !form.value.url.trim() && !Object.keys(form.value.absolute_paths).length) {
+    error.value = '请先输入条目 ID 查询，或手动填写启动链接 / 选择主程序'
     return
   }
   if ((form.value.type === 'folder' || form.value.type === 'file') && !form.value.relative_path && Object.keys(form.value.absolute_paths).length === 0) {
@@ -533,7 +558,7 @@ const refreshIconTitle = computed(() => {
     case 'folder': return '从文件夹重新提取图标'
     case 'file': return '从文件重新提取图标'
     case 'url': return '多源获取网址图标（获取失败时保持原图标）'
-    case 'steam': return '从游戏主程序重新提取图标'
+    case 'provider': return '从主程序重新提取图标'
     case 'system': return '从系统资源还原默认图标（会替换当前自定义图标）'
     case 'appx': return '从应用包还原默认图标（会替换当前自定义图标）'
     default: return '重新提取图标'
@@ -599,20 +624,18 @@ watch(() => form.value.type, (newType, oldType) => {
     form.value.run_as_admin = false
   }
 
-  // 切到 Steam 游戏：仅清相对路径类字段（启动链接/exe 路径由 ID 扫描或手动填写回填；启动设置保留，便于从程序类切换时继承）
-  if (newType === 'steam') {
+  // 切到平台游戏：仅清相对路径类字段（启动链接/exe 路径由 ID 查询或手动填写回填；启动设置保留，便于从程序类切换时继承）
+  if (newType === 'provider') {
     form.value.relative_path = ''
     form.value.path_mode = 'absolute'
-    if (oldType !== 'url' || !form.value.url.toLowerCase().startsWith('steam://rungameid/')) {
-      form.value.url = ''
-    }
+    form.value.provider = null
+    form.value.url = ''
   }
 
-  // 从 Steam 切走：清启动链接与 ID（避免残留 steam:// 到其他类型）
-  if (oldType === 'steam' && newType !== 'steam') {
-    if (form.value.url.toLowerCase().startsWith('steam://rungameid/')) {
-      form.value.url = ''
-    }
+  // 从平台游戏切走：清启动链接与平台引用
+  if (oldType === 'provider' && newType !== 'provider') {
+    form.value.url = ''
+    form.value.provider = null
   }
 })
 </script>
@@ -712,30 +735,39 @@ watch(() => form.value.type, (newType, oldType) => {
           </div>
         </template>
 
-        <!-- Steam 游戏 -->
-        <template v-if="form.type === 'steam'">
-          <div class="form-section">Steam 游戏</div>
+        <!-- 平台游戏 -->
+        <template v-if="form.type === 'provider'">
+          <div class="form-section">平台游戏</div>
 
           <div class="form-row">
-            <label class="form-label">游戏 ID</label>
+            <label class="form-label">平台</label>
+            <select v-model="platformId" class="select">
+              <option v-for="opt in platformOptions" :key="opt.id" :value="opt.id" :disabled="!opt.installed">
+                {{ opt.name }}
+              </option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <label class="form-label">条目 ID</label>
             <div style="display: flex; gap: 4px;">
-              <input v-model="steamAppId" class="input" placeholder="Steam 商店页 URL 中的数字 ID" style="flex: 1;" @keyup.enter="scanSteamApp" />
-              <button class="btn" @click="scanSteamApp" :disabled="scanningSteam">
-                {{ scanningSteam ? '扫描中...' : '扫描' }}
+              <input v-model="providerItemId" class="input" placeholder="平台条目 ID（如 Steam 商店页 URL 中的数字）" style="flex: 1;" @keyup.enter="scanProviderItem" />
+              <button class="btn" @click="scanProviderItem" :disabled="scanningProvider || !platformId">
+                {{ scanningProvider ? '查询中...' : '查询' }}
               </button>
             </div>
           </div>
 
           <div class="form-row">
             <label class="form-label">启动链接</label>
-            <input v-model="form.url" class="input" placeholder="steam://rungameid/..." @input="onSteamUrlInput" />
+            <input v-model="form.url" class="input" placeholder="如 steam://rungameid/...（查询后自动回填）" />
           </div>
 
           <div class="form-row">
-            <label class="form-label">游戏程序</label>
+            <label class="form-label">主程序</label>
             <div style="display: flex; gap: 4px;">
-              <input :value="steamExePath" class="input" placeholder="输入 ID 扫描后自动回填，或浏览选择游戏主程序" style="flex: 1;" readonly />
-              <button class="btn" @click="pickSteamExe" :disabled="loadingSteamInfo">{{ loadingSteamInfo ? '...' : '浏览...' }}</button>
+              <input :value="providerExePath" class="input" placeholder="输入 ID 查询后自动回填，或浏览选择主程序" style="flex: 1;" readonly />
+              <button class="btn" @click="pickProviderExe" :disabled="loadingProviderInfo">{{ loadingProviderInfo ? '...' : '浏览...' }}</button>
             </div>
           </div>
 

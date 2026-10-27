@@ -24,11 +24,11 @@ export function getCoverPath(entry: Entry): string {
   return ''
 }
 
-/** 悬停提示：网址显示 URL，Steam 优先显示游戏 exe 路径，其余显示备注/名称 */
+/** 悬停提示：网址显示 URL，平台游戏优先显示主程序路径，其余显示备注/名称 */
 export function hoverTip(entry: Entry): string {
   if (entry.type === 'url') return entry.url || entry.name
-  if (entry.type === 'steam') {
-    // 优先展示游戏 exe 路径，无则展示启动链接
+  if (entry.type === 'provider') {
+    // 优先展示主程序路径，无则展示启动链接
     const exe = Object.values(entry.absolute_paths || {})[0] || ''
     return exe || entry.url || entry.name
   }

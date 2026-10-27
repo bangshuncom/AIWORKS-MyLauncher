@@ -32,7 +32,7 @@ use crate::import::*;
 use crate::launch::*;
 use crate::models::*;
 use crate::paths::*;
-use crate::steam::*;
+use crate::scan::*;
 use crate::storage::*;
 
 
@@ -204,7 +204,8 @@ pub fn get_exe_info(exe_path: String) -> Result<ExeInfo, String> {
             relative_path: String::new(),
             absolute_path: exe_path.clone(),
             file_exists: false,
-            steam: None,
+            provider: None,
+            cover: None,
             multi_exe: false,
             is_primary: true,
         });
@@ -234,7 +235,8 @@ pub fn get_exe_info(exe_path: String) -> Result<ExeInfo, String> {
         relative_path: rel_path,
         absolute_path: exe_path.clone(),
         file_exists: true,
-        steam: None,
+        provider: None,
+        cover: None,
         multi_exe: false,
         is_primary: true,
     })

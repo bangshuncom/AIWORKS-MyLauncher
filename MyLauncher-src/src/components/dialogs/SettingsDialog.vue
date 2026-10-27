@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { state, saveSettings, resolveAssetUrl } from '@/store'
-import { scan_orphan_assets, clean_orphan_assets, set_autorun, get_autorun } from '@/api'
+import { scan_orphan_assets, clean_orphan_assets, set_autorun, get_autorun, list_plugins, open_plugins_dir } from '@/api'
 import { useToast } from '@/composables/useToast'
 import { useI18n } from '@/composables/useI18n'
 import { setLocale } from '@/i18n'
 import { list_languages, open_lang_dir } from '@/api'
-import type { LangInfo } from '@/types'
+import type { LangInfo, PluginInfo } from '@/types'
 import IconPicker from '@/components/IconPicker.vue'
 
 const emit = defineEmits<{
@@ -14,13 +14,14 @@ const emit = defineEmits<{
 }>()
 
 // ─── Tab 切换 ───
-type TabId = 'appearance' | 'behavior' | 'advanced' | 'maintenance'
+type TabId = 'appearance' | 'behavior' | 'advanced' | 'maintenance' | 'plugins'
 const activeTab = ref<TabId>('appearance')
 const tabs: { id: TabId; labelKey: string; icon: string }[] = [
   { id: 'appearance', labelKey: 'settings.tab.appearance', icon: '◑' },
   { id: 'behavior', labelKey: 'settings.tab.behavior', icon: '⚙' },
   { id: 'advanced', labelKey: 'settings.tab.advanced', icon: '⚒' },
   { id: 'maintenance', labelKey: 'settings.tab.maintenance', icon: '◐' },
+  { id: 'plugins', labelKey: 'settings.tab.plugins', icon: '◧' },
 ]
 
 // 表单（从当前配置初始化）
@@ -57,7 +58,44 @@ onMounted(async () => {
   }
   // 拉取已安装语言列表（实时扫描 lang/ 目录）
   await loadLanguages()
+  // 拉取插件列表
+  await loadPlugins()
 })
+
+// ─── 插件面板 ───
+const plugins = ref<PluginInfo[]>([])
+
+async function loadPlugins() {
+  try {
+    plugins.value = await list_plugins()
+  } catch {
+    // 读取失败按无插件处理
+  }
+}
+
+function openPluginsDir() {
+  open_plugins_dir().catch(() => {})
+}
+
+/**
+ * 启用/停用插件：写入 config.disabled_plugins 后立刻持久化。
+ * 停用只影响「扫描目录 / 按 ID 查询 / 平台下拉」，不动插件文件与已导入条目，
+ * 因此随时可逆，也不会把已有条目改坏。
+ */
+async function togglePlugin(p: PluginInfo) {
+  const disabled = new Set(state.config.disabled_plugins || [])
+  if (p.enabled) disabled.add(p.id)
+  else disabled.delete(p.id)
+  try {
+    await saveSettings({ disabled_plugins: Array.from(disabled) })
+    await loadPlugins()
+    showToast(p.enabled
+      ? t('settings.pluginDisabledToast', { name: p.name })
+      : t('settings.pluginEnabledToast', { name: p.name }))
+  } catch (e) {
+    showToast(t('settings.pluginToggleFailed', { error: String(e) }))
+  }
+}
 
 // Favicon 获取源默认模板（与 Rust default_favicon_api_sources 保持一致）
 const DEFAULT_FAVICON_API_SOURCES = [
@@ -526,6 +564,60 @@ async function cleanAssets() {
               </template>
             </div>
           </div>
+
+        </template>
+
+        <!-- ══════════ 插件 ══════════ -->
+        <template v-if="activeTab === 'plugins'">
+          <div class="section-title">{{ t('settings.plugins') }}</div>
+          <div class="setting-group">
+            <div class="form-hint">{{ t('settings.pluginsHint') }}</div>
+            <div v-if="plugins.length === 0" class="plugins-empty">{{ t('settings.pluginsEmpty') }}</div>
+            <div v-else class="plugins-list">
+              <div
+                v-for="p in plugins"
+                :key="p.id + p.dir"
+                class="plugin-item"
+                :class="{ 'has-error': p.status === 'error', 'is-disabled': p.status === 'ok' && !p.enabled }"
+              >
+                <div class="plugin-body">
+                  <div class="plugin-main">
+                    <span class="plugin-name">{{ p.name }}</span>
+                    <span v-if="p.version" class="plugin-version">v{{ p.version }}</span>
+                    <span class="plugin-status" :class="p.status">
+                      {{ p.status === 'ok' ? t('settings.pluginOk') : t('settings.pluginError') }}
+                    </span>
+                    <span v-if="p.status === 'ok' && !p.enabled" class="plugin-status disabled">
+                      {{ t('settings.pluginDisabledBadge') }}
+                    </span>
+                    <span v-if="p.status === 'ok' && p.installed !== null" class="plugin-installed" :class="{ yes: p.installed }">
+                      {{ p.installed ? t('settings.pluginDetected') : t('settings.pluginNotInstalled') }}
+                    </span>
+                  </div>
+                  <div v-if="p.status === 'error'" class="plugin-error-msg">{{ p.message }}</div>
+                  <div class="plugin-meta">{{ p.dir }}<template v-if="p.entry_mtime"> · {{ p.entry_mtime }}</template></div>
+                </div>
+                <!-- 启用开关：只对加载成功的插件显示（损坏插件无启停意义） -->
+                <button
+                  v-if="p.status === 'ok'"
+                  class="plugin-switch"
+                  :class="{ on: p.enabled }"
+                  type="button"
+                  role="switch"
+                  :aria-checked="p.enabled"
+                  :title="p.enabled ? t('settings.pluginDisableHint') : t('settings.pluginEnableHint')"
+                  @click="togglePlugin(p)"
+                >
+                  <span class="plugin-switch-knob"></span>
+                </button>
+              </div>
+            </div>
+            <div class="plugins-actions">
+              <button class="btn" @click="loadPlugins">🔄 {{ t('settings.pluginsRefresh') }}</button>
+              <button class="btn" @click="openPluginsDir">📂 {{ t('settings.pluginsOpenDir') }}</button>
+            </div>
+            <div class="form-hint plugins-trust-hint">{{ t('settings.pluginsTrustHint') }}</div>
+          </div>
         </template>
       </div>
 
@@ -881,6 +973,166 @@ async function cleanAssets() {
 
 .clean-result.empty b {
   color: var(--color-text-tertiary);
+}
+
+/* ─── 插件面板 ─── */
+.plugins-empty {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  padding: 10px 12px;
+  background: var(--color-bg-hover);
+  border-radius: var(--radius-sm);
+}
+
+.plugins-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.plugin-item {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.plugin-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* 停用态：整块降透明度，开关保持在右侧可点击 */
+.plugin-item.is-disabled {
+  opacity: 0.62;
+}
+
+.plugin-item.is-disabled:hover {
+  opacity: 0.92;
+}
+
+.plugin-item.has-error {
+  border-color: var(--color-danger);
+}
+
+/* 启用开关（Win11 风格小滑块） */
+.plugin-switch {
+  flex-shrink: 0;
+  width: 34px;
+  height: 18px;
+  margin-top: 2px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 9px;
+  background: var(--color-bg-hover);
+  cursor: pointer;
+  position: relative;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.plugin-switch:hover {
+  border-color: var(--color-primary);
+}
+
+.plugin-switch .plugin-switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--color-text-secondary);
+  transition: transform var(--transition), background var(--transition);
+}
+
+.plugin-switch.on {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.plugin-switch.on .plugin-switch-knob {
+  transform: translateX(16px);
+  background: #fff;
+}
+
+.plugin-switch:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-primary-bg);
+}
+
+.plugin-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.plugin-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.plugin-version {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+.plugin-status {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 8px;
+}
+
+.plugin-status.ok {
+  color: var(--color-primary);
+  background: var(--color-primary-bg);
+}
+
+.plugin-status.error {
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+}
+
+.plugin-status.disabled {
+  color: var(--color-text-tertiary);
+  background: var(--color-bg-hover);
+}
+
+.plugin-installed {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+.plugin-installed.yes {
+  color: var(--color-primary);
+}
+
+.plugin-error-msg {
+  font-size: 12px;
+  color: var(--color-danger);
+}
+
+.plugin-meta {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  word-break: break-all;
+  user-select: text;
+}
+
+.plugins-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.plugins-trust-hint {
+  margin-top: 8px;
 }
 
 </style>

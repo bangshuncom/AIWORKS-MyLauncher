@@ -7,7 +7,7 @@ import { open } from '@tauri-apps/plugin-dialog'
 import type {
   AllData, AppConfig, AssetCleanResult, AutorunStatus, BatchIconSummary, Category, Entry, Environment,
   ExeInfo, FileInfo, IconRefreshResult, ImportScanSummary, InitResult, LnkInfo, PathInfo, ScanResult, ConvertPathResult,
-  BookmarkParseResult, AppxAppInfo, SteamAppScanResult, LangInfo, LangFile
+  BookmarkParseResult, AppxAppInfo, ProviderItemResult, PluginInfo, LangInfo, LangFile
 } from '@/types'
 
 // ─── 数据持久化 ───
@@ -102,12 +102,21 @@ export async function scan_directory(dirPath: string, maxDepth?: number): Promis
   return invoke<ScanResult>('scan_directory', { dirPath, maxDepth })
 }
 
-// ─── Steam 游戏按 ID 扫描 ───
+// ─── 平台插件（扫描插件宿主） ───
 
-/** 按 Steam 应用 ID 扫描已安装游戏（注册表定位 Steam → 遍历所有库 → 解析 appmanifest），
- *  返回名称/exe 路径/封面/图标；游戏不存在或未安装时抛错 */
-export async function scan_steam_app(appId: string): Promise<SteamAppScanResult> {
-  return invoke<SteamAppScanResult>('scan_steam_app', { appId })
+/** 列出全部插件及加载状态（设置页插件面板 / 平台下拉用） */
+export async function list_plugins(): Promise<PluginInfo[]> {
+  return invoke<PluginInfo[]>('list_plugins')
+}
+
+/** 按平台 ID 查询单个条目（名称/主程序/启动链接/封面/图标） */
+export async function scan_provider_item(providerId: string, itemId: string): Promise<ProviderItemResult> {
+  return invoke<ProviderItemResult>('scan_provider_item', { providerId, itemId })
+}
+
+/** 打开插件目录（资源管理器） */
+export async function open_plugins_dir(): Promise<void> {
+  await invoke('open_plugins_dir')
 }
 
 // ─── 扫描结果批量导入 ───

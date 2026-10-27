@@ -25,6 +25,21 @@ export function getCategoryById(id: string): Category | undefined {
   return state.categories.find(c => c.id === id)
 }
 
+// 收集某分类自身及所有子孙分类 ID（含自身）
+export function collectCategoryAndDescendants(id: string): Set<string> {
+  const result = new Set<string>([id])
+  const visit = (pid: string) => {
+    state.categories.forEach(c => {
+      if (c.parent_id === pid && !result.has(c.id)) {
+        result.add(c.id)
+        visit(c.id)
+      }
+    })
+  }
+  visit(id)
+  return result
+}
+
 // 判断分类是否应在前台隐藏（未解锁时 hidden 分类不可见）
 export function isCategoryHidden(cat: Category): boolean {
   return !!cat.hidden && !state.hiddenUnlocked
@@ -218,4 +233,42 @@ export async function moveCategory(catId: string, newParentId: string | null, ne
     cat.sort_order = maxOrder + 1
   }
   await api.save_categories(state.categories)
+}
+
+// 批量移动分类（多选拖拽 / 工具栏"移动到…"）：统一应用 parent/sort_order/is_top_level 后一次写盘。
+// moves 每项给出目标父级与目标 sort_order；目标为自身或自身子孙的项跳过（循环防护）。
+export async function moveCategories(moves: { id: string; parent_id: string | null; sort_order: number }[]) {
+  let changed = false
+  for (const m of moves) {
+    const cat = state.categories.find(c => c.id === m.id)
+    if (!cat) continue
+    if (m.parent_id) {
+      let p: string | null = m.parent_id
+      let cyclic = false
+      while (p) {
+        if (p === m.id) { cyclic = true; break }
+        const parent = state.categories.find(c => c.id === p)
+        p = parent?.parent_id ?? null
+      }
+      if (cyclic) continue
+    }
+    cat.parent_id = m.parent_id
+    cat.is_top_level = m.parent_id === null
+    cat.sort_order = m.sort_order
+    changed = true
+  }
+  if (changed) await api.save_categories(state.categories)
+}
+
+// 批量更新分类字段（如批量设置显示模式），一次写盘
+export async function batchUpdateCategories(ids: string[], updates: Partial<Category>) {
+  let changed = false
+  ids.forEach(id => {
+    const idx = state.categories.findIndex(c => c.id === id)
+    if (idx >= 0) {
+      state.categories[idx] = { ...state.categories[idx], ...updates }
+      changed = true
+    }
+  })
+  if (changed) await api.save_categories(state.categories)
 }

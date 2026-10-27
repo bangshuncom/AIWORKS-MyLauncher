@@ -32,7 +32,7 @@ use crate::icons_system::*;
 use crate::import::*;
 use crate::launch::*;
 use crate::paths::*;
-use crate::steam::*;
+use crate::scan::*;
 use crate::storage::*;
 
 
@@ -72,6 +72,10 @@ pub struct Entry {
     pub window_style: String,
     pub run_as_admin: bool,
     pub url: String,
+    /// 平台来源（type="provider" 的条目专用）：插件 id + 平台条目 ID。
+    /// 启动链接存于 url 字段，此处不重复
+    #[serde(default)]
+    pub provider: Option<ProviderRef>,
     /// 更新地址（可选）：开源软件的 GitHub 仓库/发布页等，编辑页可一键访问查看新版本。
     /// 仅 program/file 类型使用，旧数据无此字段
     #[serde(default)]
@@ -158,6 +162,11 @@ pub struct AppConfig {
     /// 空字符串表示未设置（老配置升级场景），前端按系统语言判定后回写。
     #[serde(default = "default_language")]
     pub language: String,
+    /// 已停用的插件 id 列表（设置页开关控制）。
+    /// 停用后插件不参与目录探测、按 ID 查询与平台下拉，但插件文件保留、
+    /// 已导入条目的启动不受影响（启动只依赖条目的 url/exe 路径）
+    #[serde(default)]
+    pub disabled_plugins: Vec<String>,
 }
 
 pub(crate) fn default_logo_icon() -> String { "🪷".to_string() }
@@ -191,6 +200,34 @@ pub struct InitResult {
     pub data_dir: String,
 }
 
+/// 平台来源引用：条目由哪个扫描插件提供。
+/// 宿主不认识具体平台，id 对应 plugins/<id>/ 目录；launch_url 为平台协议启动链接
+/// （存进 Entry.url），meta 透传插件自定义字段仅供显示。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderRef {
+    /// 插件 id（如 "steam"）
+    pub id: String,
+    /// 平台条目 ID（如 Steam 的 appid）
+    pub item_id: String,
+    /// 启动链接（如 steam://rungameid/730），可与 Entry.url 相互对应
+    #[serde(default)]
+    pub launch_url: String,
+    /// 插件自定义元数据（原样透传）
+    #[serde(default)]
+    pub meta: HashMap<String, String>,
+}
+
+/// 封面来源（扫描插件给出，宿主负责复制/下载到 assets/covers/<provider_id>/）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoverSource {
+    /// 本地图片路径（存在时优先复制）
+    #[serde(default)]
+    pub local_path: String,
+    /// 网络图片地址（本地缺失时下载，失败静默）
+    #[serde(default)]
+    pub url: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExeInfo {
     pub name: String,
@@ -199,10 +236,13 @@ pub struct ExeInfo {
     pub relative_path: String,
     pub absolute_path: String,
     pub file_exists: bool,
-    /// Steam 游戏信息（识别为 Steam 游戏时填充，否则为 None）
+    /// 平台来源（插件扫描结果；普通程序为 None）
     #[serde(default)]
-    pub steam: Option<SteamGameInfo>,
-    /// 该 Steam 游戏发现多个候选 exe（后端已展开为多条，前端红色提示用户勾选）
+    pub provider: Option<ProviderRef>,
+    /// 封面来源（插件/内置扫描给出，导入时宿主复制或下载）
+    #[serde(default)]
+    pub cover: Option<CoverSource>,
+    /// 发现多个候选 exe（后端已展开为多条，前端红色提示用户勾选）
     #[serde(default)]
     pub multi_exe: bool,
     /// 是否主程序 exe（多候选时的第一个，默认选中；单 exe 时为 true）
@@ -239,23 +279,9 @@ pub struct LnkInfo {
 pub struct ScanResult {
     pub results: Vec<ExeInfo>,
     pub total: usize,
-}
-
-/// Steam 游戏信息（识别 Steam 安装目录时附加在 ExeInfo 上）
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SteamGameInfo {
-    /// Steam 应用 ID（appmanifest_*.acf 的 appid）
-    pub app_id: String,
-    /// 游戏安装目录名（appmanifest 的 installdir，如 "Counter-Strike Global Offensive"）
-    pub install_dir: String,
-    /// 游戏 exe 绝对路径（在 installdir 下递归查找的候选 exe，可能为空）
-    pub exe_path: String,
-    /// 封面图相对路径（assets/covers/steam/{appid}.jpg，空表示未获取到；
-    /// 扫描阶段不再获取，导入时由 import_scan_items 填充）
-    pub cover_path: String,
-    /// Steam 安装目录（导入阶段定位本地封面缓存 appcache/librarycache 用）
+    /// 扫描警告（插件超时/输出非法/目录不可访问等，前端提示区展示）
     #[serde(default)]
-    pub steam_dir: String,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

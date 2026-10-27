@@ -34,7 +34,7 @@ use crate::lang::*;
 use crate::launch::*;
 use crate::models::*;
 use crate::paths::*;
-use crate::steam::*;
+use crate::scan::*;
 
 
 // ═══════════════════════════════════════════
@@ -65,8 +65,8 @@ pub fn init_data_dir() -> Result<InitResult, String> {
     let data_dir = get_data_dir()?;
     let assets_dir = get_assets_dir()?;
 
-    // 创建子目录
-    for sub in &["icons/custom", "icons/extracted", "covers/custom", "covers/steam", "logo"] {
+    // 创建子目录（封面目录 covers/<provider_id> 由封面落盘时按需创建）
+    for sub in &["icons/custom", "icons/extracted", "covers/custom", "logo"] {
         let _ = ensure_dir(&assets_dir.join(sub));
     }
 
@@ -101,6 +101,28 @@ pub fn init_data_dir() -> Result<InitResult, String> {
     })
 }
 
+/// 旧数据迁移：type="steam" → type="provider" + provider 引用。
+/// 启动链接不变（仍是 steam://rungameid/{appid}），item_id 从链接中提取；
+/// 内存中转换，下次保存条目时自然落盘。
+/// （本函数是唯一保留 Steam 字面量的地方——它服务于历史遗留数据，随旧数据消亡而删）
+fn migrate_legacy_entries(entries: &mut [Entry]) {
+    for e in entries.iter_mut() {
+        if e.entry_type != "steam" { continue; }
+        let item_id = e.url.trim()
+            .strip_prefix("steam://rungameid/")
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        e.entry_type = "provider".to_string();
+        e.provider = Some(crate::models::ProviderRef {
+            id: "steam".to_string(),
+            item_id,
+            launch_url: String::new(),
+            meta: Default::default(),
+        });
+    }
+}
+
 #[command]
 pub fn load_all_data() -> Result<AllData, String> {
     let data_dir = get_data_dir()?;
@@ -108,7 +130,8 @@ pub fn load_all_data() -> Result<AllData, String> {
     let config: AppConfig = read_json_file(&data_dir.join("config.json")).unwrap_or_else(|_| default_config());
     let environments: Vec<Environment> = read_json_file(&data_dir.join("environments.json")).unwrap_or_default();
     let categories: Vec<Category> = read_json_file(&data_dir.join("categories.json")).unwrap_or_default();
-    let entries: Vec<Entry> = read_json_file(&data_dir.join("entries.json")).unwrap_or_default();
+    let mut entries: Vec<Entry> = read_json_file(&data_dir.join("entries.json")).unwrap_or_default();
+    migrate_legacy_entries(&mut entries);
 
     Ok(AllData {
         config,

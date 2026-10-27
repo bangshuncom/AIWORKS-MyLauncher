@@ -121,8 +121,8 @@ export async function convertEntriesPathMode(ids: string[], targetMode: 'relativ
     const idx = state.entries.findIndex(e => e.id === id)
     if (idx < 0) continue
     const entry = state.entries[idx]
-    // 网址/系统功能/APPX/Steam 不转换路径（Steam 的 exe 路径仅作定位/直启用，模式固定绝对）
-    if (entry.type === 'url' || entry.type === 'system' || entry.type === 'appx' || entry.type === 'steam') continue
+    // 网址/系统功能/APPX/平台游戏不转换路径（平台游戏的 exe 路径仅作定位/直启用，模式固定绝对）
+    if (entry.type === 'url' || entry.type === 'system' || entry.type === 'appx' || entry.type === 'provider') continue
 
     // 已经是目标模式，直接忽略
     if (entry.path_mode === targetMode) {
@@ -211,8 +211,8 @@ export async function refreshEntriesIcons(ids: string[]): Promise<{ success: num
         // bump 图标版本：URL 拼上 ?v= 强制 WebView 重载新图（文件路径不变时会命中缓存）
         bumpIconVersion(r.icon_path)
         success++
-      } else if (entry.type === 'url' || entry.type === 'steam') {
-        // url 类型 favicon 链全失败 / steam 条目无 exe 路径：跳过（保持原图标不变）
+      } else if (entry.type === 'url' || entry.type === 'provider') {
+        // url 类型 favicon 链全失败 / 平台游戏条目无 exe 路径：跳过（保持原图标不变）
         skipped++
       } else {
         failed++
@@ -249,7 +249,7 @@ export async function launchEntries(ids: string[]): Promise<{ success: number; f
     if (!entry) continue
     try {
       let ok = false
-      if (entry.type === 'url' || entry.type === 'system' || entry.type === 'appx' || entry.type === 'steam') {
+      if (entry.type === 'url' || entry.type === 'system' || entry.type === 'appx' || entry.type === 'provider') {
         ok = await api.launch_program(entry, state.currentEnvId)
       } else {
         const pathInfo = await api.resolve_path(entry, state.currentEnvId)
@@ -293,6 +293,7 @@ export function createEntryDraft(categoryId: string, type: EntryType): Omit<Entr
     window_style: 'normal',
     run_as_admin: false,
     url: '',
+    provider: null,
     update_url: '',
     icon: { type: 'default', source: '' },
     icon_source: '',

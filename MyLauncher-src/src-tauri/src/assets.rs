@@ -32,7 +32,7 @@ use crate::import::*;
 use crate::launch::*;
 use crate::models::*;
 use crate::paths::*;
-use crate::steam::*;
+use crate::scan::*;
 use crate::storage::*;
 
 
@@ -149,15 +149,25 @@ pub(crate) fn find_orphan_assets() -> Result<(Vec<std::path::PathBuf>, u64), Str
     let (refs, ref_names) = collect_asset_refs()?;
 
     // 清理范围白名单（相对 assets 的子目录）
-    let scopes = [
-        "icons/extracted",
-        "icons/custom",
-        "icons/bookmarks",
-        "icons/file_cache",
-        "covers/custom",
-        "covers/steam",
-        "logo",
+    // 封面子目录名由插件 id 决定（covers/custom 与 covers/<provider_id>），动态发现，
+    // 不在这里硬编码任何平台名——宿主不认识平台的规则同样适用于资源清理
+    let mut scopes: Vec<String> = vec![
+        "icons/extracted".to_string(),
+        "icons/custom".to_string(),
+        "icons/bookmarks".to_string(),
+        "icons/file_cache".to_string(),
+        "logo".to_string(),
     ];
+    if let Ok(entries) = std::fs::read_dir(assets_dir.join("covers")) {
+        for item in entries.flatten() {
+            if !item.path().is_dir() {
+                continue;
+            }
+            if let Some(name) = item.file_name().to_str() {
+                scopes.push(format!("covers/{}", name));
+            }
+        }
+    }
 
     // 先数一遍磁盘文件总数，用于防呆判断
     let mut disk_file_count = 0usize;
@@ -294,6 +304,34 @@ pub fn clean_orphan_assets() -> Result<AssetCleanResult, String> {
     })
 }
 
+/// 资源删除白名单：固定资源目录 + `covers/<子目录>/文件`。
+/// 封面子目录名来自插件 id，不枚举具体平台；只允许一层目录，防 `../` 越界。
+fn is_allowed_asset_path(src: &str) -> bool {
+    const FIXED: [&str; 6] = [
+        "assets/icons/extracted/",
+        "assets/icons/custom/",
+        "assets/icons/bookmarks/",
+        "assets/icons/file_cache/",
+        "assets/covers/custom/",
+        "assets/logo/",
+    ];
+    if FIXED.iter().any(|p| src.starts_with(p)) {
+        return true;
+    }
+    if let Some(rest) = src.strip_prefix("assets/covers/") {
+        let mut parts = rest.split('/');
+        let dir = parts.next().unwrap_or("");
+        let file = parts.next().unwrap_or("");
+        let extra = parts.next();
+        return !dir.is_empty()
+            && !file.is_empty()
+            && extra.is_none()
+            && !dir.contains("..")
+            && !dir.contains('\\');
+    }
+    false
+}
+
 /// 删除条目后的资源联动清理：
 /// 前端删除条目并保存 JSON 后调用，传入被删条目的图标/封面相对路径列表。
 /// 复用 collect_asset_refs 重建「删除后」的全量引用集合，候选文件只有
@@ -313,15 +351,6 @@ pub fn cleanup_deleted_assets(sources: Vec<String>) -> Result<usize, String> {
     }
 
     // 白名单前缀：只允许删 assets 下资源目录内的文件，防误传任意路径
-    const ALLOWED_PREFIXES: [&str; 7] = [
-        "assets/icons/extracted/",
-        "assets/icons/custom/",
-        "assets/icons/bookmarks/",
-        "assets/icons/file_cache/",
-        "assets/covers/custom/",
-        "assets/covers/steam/",
-        "assets/logo/",
-    ];
 
     let assets_dir = get_assets_dir()?;
 
@@ -331,7 +360,7 @@ pub fn cleanup_deleted_assets(sources: Vec<String>) -> Result<usize, String> {
     let mut to_recycle: Vec<std::path::PathBuf> = Vec::new();
     for src in &candidates {
         // 仅处理 assets 白名单前缀内的路径
-        if !ALLOWED_PREFIXES.iter().any(|p| src.starts_with(p)) {
+        if !is_allowed_asset_path(src) {
             continue;
         }
         // 拼绝对路径（词法规范化，防 .. 段）

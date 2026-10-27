@@ -16,6 +16,7 @@ MyLauncher 是一款 Windows 桌面应用，帮你把散落在各个磁盘和目
 - **自动图标提取** — 程序、文件、文件夹自动提取 Windows 系统图标，网址自动抓取 favicon
 - **拖拽添加** — 直接把 exe 或快捷方式拖进窗口，自动识别名称和图标
 - **文件夹扫描** — 指定目录递归扫描 exe，批量添加
+- **插件化平台扫描** — 游戏平台（如 Steam）的扫描逻辑以独立插件形式放在 `plugins/` 目录，平台规则变了只需替换插件，不用更新主程序；设置 → 插件可启用/停用
 - **书签导入** — 解析浏览器导出的书签 HTML 文件，批量导入网址收藏
 - **批量操作** — 批量删除、移动分类、转换路径模式、重新提取图标
 - **系统托盘** — 关闭窗口隐藏到托盘，双击恢复
@@ -162,11 +163,16 @@ MyLauncher-src/
         ├── models.rs / defaults.rs
         ├── paths.rs / storage.rs / launch.rs
         ├── icons.rs / icons_refresh.rs / icons_system.rs
-        ├── steam.rs / import.rs
+        ├── scan.rs / import.rs    # 目录扫描入口 / 扫描结果导入
+        ├── plugin_host.rs         # 插件宿主：发现、探测、调度、输出归一化
         ├── favicon.rs / bookmarks.rs / assets.rs
         ├── autorun.rs
         └── lang.rs               # 多语言：释放/扫描/读取/打开目录
 ```
+
+> 平台扫描插件的源码在仓库根目录 `plugins-src/<id>/`，编译产物部署到程序目录的
+> `plugins/<id>/`（`build-plugins.bat` 一键编译并拷贝）。插件协议见
+> [`docs/plugin-architecture.md`](docs/plugin-architecture.md)。
 
 ## 使用技巧
 

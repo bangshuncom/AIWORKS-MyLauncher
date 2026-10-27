@@ -113,7 +113,12 @@ const coverPaddingTop = computed(() => {
   height: 0;
 }
 
-.v-card-cover-box img {
+/* 只作用于封面图本身（必须是 box 的直接子元素）。
+   不能用 `.v-card-cover-box img`：Vue scoped 样式会把父组件的 data-v 属性
+   加到子组件（EntryIcon）的根节点上，无封面时 EntryIcon 渲染的 <img>
+   就会被这条规则命中，被绝对定位到左上角（inline 的宽高会压过 width/height 100%，
+   但 left/top:0 生效），从而破坏 .v-card-cover-fallback 的居中。 */
+.v-card-cover-box > img {
   position: absolute;
   inset: 0;
   width: 100%;

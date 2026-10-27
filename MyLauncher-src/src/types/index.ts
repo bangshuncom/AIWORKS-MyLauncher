@@ -12,8 +12,18 @@ export interface CoverResource {
   source: string
 }
 
-/** 条目类型：程序/网址/文件夹/文件/系统功能/APPX应用/Steam游戏 */
-export type EntryType = 'program' | 'url' | 'folder' | 'file' | 'system' | 'appx' | 'steam'
+/** 条目类型：程序/网址/文件夹/文件/系统功能/APPX应用/平台游戏（插件提供） */
+export type EntryType = 'program' | 'url' | 'folder' | 'file' | 'system' | 'appx' | 'provider'
+
+/** 平台来源引用：条目由哪个扫描插件提供（type="provider" 时存在） */
+export interface ProviderInfo {
+  /** 插件 id，如 "steam" */
+  id: string
+  /** 平台条目 ID，如 Steam 的 appid */
+  item_id: string
+  /** 插件自定义元数据（原样透传，仅供显示） */
+  meta?: Record<string, string>
+}
 
 export interface Entry {
   id: string
@@ -28,6 +38,8 @@ export interface Entry {
   window_style: 'normal' | 'maximized' | 'minimized'
   run_as_admin: boolean
   url: string
+  /** 平台来源（type="provider" 时存在）：插件 id + 平台条目 ID；启动链接存于 url */
+  provider?: ProviderInfo | null
   /** 更新地址（可选，仅程序/文件）：开源软件发布页等，编辑页可一键访问查看新版本 */
   update_url?: string
   icon: ImageResource
@@ -88,6 +100,8 @@ export interface AppConfig {
   masonry_max_height: number
   /** 界面语言代码（lang/ 目录下的文件名，如 zh-CN / zh-TW / en-US），空表示未设置 */
   language: string
+  /** 已停用的插件 id 列表（设置页开关控制；停用后不参与扫描与平台下拉） */
+  disabled_plugins?: string[]
 }
 
 /** 语言文件 meta 信息（lang/*.json 文件头） */
@@ -148,18 +162,12 @@ export interface AllData {
   entries: Entry[]
 }
 
-/** Steam 游戏信息（识别为 Steam 游戏时附带） */
-export interface SteamGameInfo {
-  /** Steam 应用 ID（appmanifest_*.acf 的 appid） */
-  app_id: string
-  /** 游戏安装目录名（appmanifest 的 installdir） */
-  install_dir: string
-  /** 游戏 exe 绝对路径（可能为空） */
-  exe_path: string
-  /** 封面图相对路径（assets/covers/steam/{appid}.jpg，空表示未获取到；扫描阶段为空，导入时填充） */
-  cover_path: string
-  /** Steam 安装目录（导入阶段定位本地封面缓存用，可能为空） */
-  steam_dir: string
+/** 扫描结果携带的封面来源（宿主负责复制/下载落盘） */
+export interface CoverSource {
+  /** 本地图片路径（存在时优先复制） */
+  local_path: string
+  /** 网络图片地址（本地缺失时下载，失败静默） */
+  url: string
 }
 
 export interface ExeInfo {
@@ -169,24 +177,56 @@ export interface ExeInfo {
   relative_path: string
   absolute_path: string
   file_exists: boolean
-  /** Steam 游戏信息（识别为 Steam 游戏时填充，否则为 null） */
-  steam?: SteamGameInfo | null
-  /** 该 Steam 游戏发现多个候选 exe（后端已展开为多条，红色提示用户勾选） */
+  /** 平台来源（插件/内置扫描识别的平台游戏，普通程序为 null） */
+  provider?: ProviderRef | null
+  /** 封面来源（导入时落盘） */
+  cover?: CoverSource | null
+  /** 发现多个候选 exe（后端已展开为多条，红色提示用户勾选） */
   multi_exe?: boolean
   /** 是否主程序 exe（多候选时的第一个，默认选中；单 exe 时为 true） */
   is_primary?: boolean
 }
 
-/** 按 Steam 应用 ID 扫描单个游戏的结果 */
-export interface SteamAppScanResult {
-  /** 游戏名称（appmanifest 的 name） */
+/** 扫描结果中的平台引用（含启动链接，导入时拆分到 Entry.url / Entry.provider） */
+export interface ProviderRef {
+  id: string
+  item_id: string
+  launch_url: string
+  meta?: Record<string, string>
+}
+
+/** 按 ID 查询单个平台条目的结果（scan_provider_item 返回） */
+export interface ProviderItemResult {
   name: string
-  /** 游戏 exe 绝对路径（可能为空） */
+  /** 主程序 exe 绝对路径（可能为空，仅靠启动链接启动） */
   exe_path: string
-  /** 封面图相对路径（assets/covers/steam/{appid}.jpg，空表示未获取到） */
+  /** 启动链接（如 steam://rungameid/730） */
+  launch_url: string
+  /** 封面相对路径（已落盘 assets/covers/<provider_id>/，空表示未获取到） */
   cover_path: string
-  /** 图标相对路径（从游戏 exe 提取，可能为空） */
+  /** 图标相对路径（从主程序 exe 提取，可能为空） */
   icon_path: string
+}
+
+/** 插件面板条目（list_plugins 返回） */
+export interface PluginInfo {
+  id: string
+  name: string
+  version: string
+  /** 插件目录绝对路径 */
+  dir: string
+  /** ok | error */
+  status: 'ok' | 'error'
+  /** 状态说明（error 时为人能看懂的原因） */
+  message: string
+  /** 能力列表（scan_dir / scan_id） */
+  capabilities: string[]
+  /** 平台是否检测到安装（manifest 提供 installed_check 时才有值） */
+  installed: boolean | null
+  /** 是否启用（设置页开关控制；停用后不参与扫描与平台下拉） */
+  enabled: boolean
+  /** 入口文件修改时间 */
+  entry_mtime: string
 }
 
 /** 文件/文件夹信息 */
@@ -217,6 +257,8 @@ export interface LnkInfo {
 export interface ScanResult {
   results: ExeInfo[]
   total: number
+  /** 扫描警告（插件超时/输出非法/目录不可访问等） */
+  warnings?: string[]
 }
 
 export interface PathInfo {

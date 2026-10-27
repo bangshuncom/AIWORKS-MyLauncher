@@ -32,7 +32,7 @@ use crate::import::*;
 use crate::launch::*;
 use crate::models::*;
 use crate::paths::*;
-use crate::steam::*;
+use crate::scan::*;
 use crate::storage::*;
 
 
@@ -65,9 +65,9 @@ impl IconRefreshResult {
 /// 不修改 JSON 数据（由前端保存），仅生成新图标文件。
 pub(crate) fn refresh_icon_inner(entry: &Entry, current_env_id: &str) -> Result<String, String> {
     match entry.entry_type.as_str() {
-        "steam" => {
-            // Steam 游戏：与 program 一致，从解析出的游戏 exe 提取图标
-            // （resolve_path_inner 对 steam 条目优先解析 absolute_paths 中的 exe 路径）
+        "provider" => {
+            // 平台游戏：与 program 一致，从解析出的主程序 exe 提取图标
+            // （resolve_path_inner 对 provider 条目优先解析 absolute_paths 中的 exe 路径）
             let info = resolve_path_inner(entry, current_env_id)?;
             if !info.exists {
                 return Err(format!("游戏主程序不存在: {}", info.resolved));

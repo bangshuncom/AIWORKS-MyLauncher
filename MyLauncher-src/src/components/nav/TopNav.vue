@@ -14,6 +14,7 @@ const { t } = useI18n()
 
 const topCats = computed(() => getVisibleTopCategories())
 const searchQuery = ref('')
+const searchInputRef = ref<HTMLInputElement | null>(null)
 
 // ─── LOGO 动态渲染 ───
 const logoIcon = computed(() => state.config.logo_icon || '🪷')
@@ -112,6 +113,15 @@ function onSearch() {
   emit('search', searchQuery.value)
 }
 
+/** 点击搜索按钮 / 输入框回车：执行一次搜索；无输入时聚焦输入框 */
+function submitSearch() {
+  if (!searchQuery.value.trim()) {
+    searchInputRef.value?.focus()
+    return
+  }
+  emit('search', searchQuery.value)
+}
+
 function clearSearch() {
   searchQuery.value = ''
   emit('search', '')
@@ -156,15 +166,26 @@ function clearSearch() {
 
     <!-- 工具栏（环境切换已移至 左下角菜单 → 环境管理） -->
     <div class="nav-toolbar">
-      <!-- 搜索框 -->
-      <input
-        v-model="searchQuery"
-        class="search-input"
-        type="text"
-        :placeholder="t('nav.top.searchPlaceholder')"
-        @input="onSearch"
-      />
-      <button v-if="searchQuery" class="btn btn-icon" :title="t('nav.top.clearSearch')" @click="clearSearch">✕</button>
+      <!-- 搜索栏：输入框 / 清除 / 搜索按钮合为一个整体 pill，共用一套边框与聚焦态 -->
+      <div class="search-bar">
+        <input
+          ref="searchInputRef"
+          v-model="searchQuery"
+          class="search-input"
+          type="text"
+          :placeholder="t('nav.top.searchPlaceholder')"
+          @input="onSearch"
+          @keydown.enter="submitSearch"
+        />
+        <button v-if="searchQuery" class="search-clear" :title="t('nav.top.clearSearch')" @click="clearSearch">✕</button>
+        <span class="search-divider"></span>
+        <button class="search-submit" :title="t('nav.top.search')" @click="submitSearch">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+            <circle cx="7" cy="7" r="4.5" />
+            <path d="M10.6 10.6 L14 14" />
+          </svg>
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -315,31 +336,100 @@ function clearSearch() {
   flex-shrink: 0;
 }
 
-.search-input {
-  width: 180px;
-  padding: 7px 12px;
-  border: 1px solid transparent;
+/* ─── 搜索栏：输入框与按钮合成一个 pill（Win11 风格）───
+   容器统一负责背景/边框/聚焦态；内部输入框无边框透明底，
+   清除与搜索按钮为无边框小热区，视觉上是一个整体控件。 */
+.search-bar {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  width: 210px;
+  padding: 0 3px 0 11px;
   border-radius: var(--radius-md);
   background: var(--color-bg-sidebar);
+  border: 1px solid transparent;
+  box-sizing: border-box;
+  transition: all var(--transition);
+}
+.search-bar:hover {
+  background: var(--color-bg-hover);
+}
+.search-bar:focus-within {
+  background: var(--color-bg-card);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.12);
+  width: 250px;
+}
+
+/* 输入框：去掉自身边框背景，融入 pill */
+.search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
   /* 文字与顶部导航同色（暗色主题下跟随变浅） */
   color: var(--color-text);
   font-size: 12.5px;
-  outline: none;
-  transition: all var(--transition);
 }
 
 .search-input::placeholder {
   color: var(--color-text-tertiary);
 }
 
-.search-input:hover {
+/* 清除按钮：仅在有输入时出现 */
+.search-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-left: 4px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-size: 10.5px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--transition);
+}
+.search-clear:hover {
   background: var(--color-bg-hover);
+  color: var(--color-text);
 }
 
-.search-input:focus {
-  background: var(--color-bg-card);
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.12);
-  width: 220px;
+/* 输入区与按钮区的分隔线 */
+.search-divider {
+  width: 1px;
+  height: 14px;
+  margin: 0 3px;
+  background: var(--color-border);
+  flex-shrink: 0;
+}
+
+/* 搜索按钮：放大镜用 SVG 线条图标，与 ✕ 同为细线条文本级视觉，跟随主题变色 */
+.search-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--transition);
+}
+.search-submit:hover {
+  background: rgba(0, 120, 212, 0.1);
+  color: var(--color-primary);
+}
+.search-submit:active {
+  transform: scale(0.92);
 }
 </style>

@@ -7,6 +7,15 @@ echo   MyLauncher - Portable Build Script
 echo ============================================
 echo.
 
+REM -------------------------------------------------------------
+REM Ensure Rust environment is available even if the parent process
+REM did not inherit the User PATH / RUSTUP_HOME / CARGO_HOME.
+REM (e.g. double-clicking this .bat from a stale Explorer session)
+REM -------------------------------------------------------------
+if not defined RUSTUP_HOME set "RUSTUP_HOME=D:\Program Files\Rust\.rustup"
+if not defined CARGO_HOME  set "CARGO_HOME=D:\Program Files\Rust\.cargo"
+if "%PATH:D:\Program Files\Rust\.cargo\bin=%"=="%PATH%" set "PATH=D:\Program Files\Rust\.cargo\bin;%PATH%"
+
 REM ?????? 1. Check Rust ??????
 echo [1/4] Checking Rust toolchain...
 where rustc >nul 2>&1
@@ -77,6 +86,12 @@ if not exist "%PKG_DIR%\assets\icons\builtin" mkdir "%PKG_DIR%\assets\icons\buil
 if not exist "%PKG_DIR%\assets\covers\custom" mkdir "%PKG_DIR%\assets\covers\custom"
 if not exist "%PKG_DIR%\assets\covers\thumbs" mkdir "%PKG_DIR%\assets\covers\thumbs"
 if not exist "%PKG_DIR%\assets\temp" mkdir "%PKG_DIR%\assets\temp"
+
+REM Deploy scan plugins (plugins/ folder, xcopy keeps subdirs per plugin)
+if exist "%CD%\plugins" (
+    xcopy "%CD%\plugins" "%PKG_DIR%\plugins\" /E /I /Y >nul
+    echo   [OK] plugins deployed
+)
 
 echo.
 echo ============================================

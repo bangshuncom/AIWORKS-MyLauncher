@@ -3,6 +3,9 @@ import { computed } from 'vue'
 import type { Category, ViewMode } from '@/types'
 import IconPicker from '@/components/IconPicker.vue'
 import { state } from '@/store'
+import { useI18n } from '@/composables/useI18n'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   editing: Category | null
@@ -66,7 +69,7 @@ const syncChildren = defineModel<boolean>('syncChildren', { default: false })
   <div class="cat-edit-panel" @click.stop>
     <!-- 图标选择器 -->
     <div class="cat-icon-picker">
-      <div class="section-title">分类图标</div>
+      <div class="section-title">{{ t('cat.edit.icon') }}</div>
       <IconPicker
         :current-type="currentIconType"
         :current-source="currentIconSource"
@@ -79,15 +82,15 @@ const syncChildren = defineModel<boolean>('syncChildren', { default: false })
 
     <!-- 编辑表单 -->
     <div class="cat-edit-form">
-      <div class="section-title">{{ isNew ? '新建分类' : '编辑分类' }}</div>
+      <div class="section-title">{{ isNew ? t('cat.edit.new') : t('cat.edit.edit') }}</div>
       <div class="form-row">
-        <label class="form-label">名称</label>
-        <input v-model="form.name" class="input" placeholder="分类名称" />
+        <label class="form-label">{{ t('cat.edit.name') }}</label>
+        <input v-model="form.name" class="input" :placeholder="t('cat.edit.namePlaceholder')" />
       </div>
       <div class="form-row">
-        <label class="form-label">父分类</label>
+        <label class="form-label">{{ t('cat.edit.parent') }}</label>
         <select v-model="form.parent_id" class="select">
-          <option :value="null">无（一级分类）</option>
+          <option :value="null">{{ t('cat.edit.parentNone') }}</option>
           <option
             v-for="cat in hierarchicalCategories"
             :key="cat.id"
@@ -96,32 +99,32 @@ const syncChildren = defineModel<boolean>('syncChildren', { default: false })
         </select>
       </div>
       <div class="form-row">
-        <label class="form-label">显示模式</label>
+        <label class="form-label">{{ t('cat.edit.viewMode') }}</label>
         <select v-model="form.view_mode" class="select">
-          <option value="vertical_card">竖向卡片</option>
-          <option value="horizontal_card">横向卡片</option>
-          <option value="icon_grid">图标平铺</option>
-          <option value="table">表格列表</option>
-          <option value="waterfall">瀑布流</option>
+          <option value="vertical_card">{{ t('cat.manager.viewMode.vertical_card') }}</option>
+          <option value="horizontal_card">{{ t('cat.manager.viewMode.horizontal_card') }}</option>
+          <option value="icon_grid">{{ t('cat.manager.viewMode.icon_grid') }}</option>
+          <option value="table">{{ t('cat.manager.viewMode.table') }}</option>
+          <option value="waterfall">{{ t('cat.manager.viewMode.waterfall') }}</option>
         </select>
       </div>
       <div class="form-row sync-row" v-if="!isNew">
         <label class="form-label"></label>
         <label class="sync-check">
           <input type="checkbox" v-model="syncChildren" />
-          <span>同步显示模式到所有子分类</span>
+          <span>{{ t('cat.edit.syncChildren') }}</span>
         </label>
       </div>
       <div class="form-row">
         <label class="form-label"></label>
-        <label class="sync-check" title="勾选后该分类在前台不显示；LOGO 三击弹关于时临时显示，重启恢复隐藏">
+        <label class="sync-check" :title="t('cat.edit.hiddenTitle')">
           <input type="checkbox" v-model="form.hidden" />
-          <span>前台隐藏</span>
+          <span>{{ t('cat.edit.hidden') }}</span>
         </label>
       </div>
       <div class="form-actions">
-        <button class="btn" @click="emit('cancel')">取消</button>
-        <button class="btn btn-primary" @click="emit('save')">保存</button>
+        <button class="btn" @click="emit('cancel')">{{ t('common.cancel') }}</button>
+        <button class="btn btn-primary" @click="emit('save')">{{ t('common.save') }}</button>
       </div>
     </div>
   </div>

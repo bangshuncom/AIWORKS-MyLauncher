@@ -24,9 +24,9 @@ export function useDialogs() {
   const catManagerEditId = ref<string | undefined>(undefined)
   const catManagerNewParentId = ref<string | null | undefined>(undefined)
 
-  // Steam 启动方式选择弹窗
-  const showSteamChoiceDialog = ref(false)
-  const steamChoiceEntry = ref<Entry | null>(null)
+  // 平台游戏启动方式选择弹窗
+  const showProviderChoiceDialog = ref(false)
+  const providerChoiceEntry = ref<Entry | null>(null)
 
   /** 打开条目编辑器；传 null 表示新增（默认 program 类型） */
   function openEntryEditor(entry: Entry | null) {
@@ -58,7 +58,7 @@ export function useDialogs() {
     showEnvManager, showCatManager, showScanDialog, showBookmarkDialog,
     showSettingsDialog, showAboutDialog,
     deleteCatId, catManagerEditId, catManagerNewParentId,
-    showSteamChoiceDialog, steamChoiceEntry,
+    showProviderChoiceDialog, providerChoiceEntry,
     openEntryEditor, openCatManager, closeCatManager, openAboutAndUnlock,
   }
 }

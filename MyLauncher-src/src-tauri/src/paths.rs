@@ -32,7 +32,7 @@ use crate::icons_system::*;
 use crate::import::*;
 use crate::launch::*;
 use crate::models::*;
-use crate::steam::*;
+use crate::scan::*;
 use crate::storage::*;
 
 
