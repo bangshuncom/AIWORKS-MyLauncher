@@ -7,6 +7,7 @@ import { pickAndCopyImage } from '@/composables/useAssetImagePicker'
 import PathModeFields from '@/components/PathModeFields.vue'
 import SystemAppPicker, { type SystemAppSelection } from '@/components/dialogs/SystemAppPicker.vue'
 import { SYSTEM_TOOLS, toolIconSource } from '@/data/systemTools'
+import { DEFAULT_TYPE_EMOJI } from '@/utils/entryDisplay'
 import { onImgError, onImgLoad } from '@/composables/useImageFallback'
 
 const props = defineProps<{
@@ -21,15 +22,15 @@ const emit = defineEmits<{
   (e: 'saved'): void
 }>()
 
-/** 七种类型的展示信息（平台游戏由插件动态提供平台列表） */
+/** 七种类型的展示信息（平台游戏由插件动态提供平台列表）；图标取自共用的类型默认图标表 */
 const TYPE_OPTIONS: { value: EntryType; label: string; icon: string }[] = [
-  { value: 'program', label: '程序', icon: '📦' },
-  { value: 'url', label: '网址', icon: '🌐' },
-  { value: 'folder', label: '文件夹', icon: '📁' },
-  { value: 'file', label: '文件', icon: '📄' },
-  { value: 'system', label: '系统功能', icon: '🛠️' },
-  { value: 'appx', label: 'APPX 应用', icon: '🏪' },
-  { value: 'provider', label: '平台游戏', icon: '🎮' },
+  { value: 'program', label: '程序', icon: DEFAULT_TYPE_EMOJI.program },
+  { value: 'url', label: '网址', icon: DEFAULT_TYPE_EMOJI.url },
+  { value: 'folder', label: '文件夹', icon: DEFAULT_TYPE_EMOJI.folder },
+  { value: 'file', label: '文件', icon: DEFAULT_TYPE_EMOJI.file },
+  { value: 'system', label: '系统功能', icon: DEFAULT_TYPE_EMOJI.system },
+  { value: 'appx', label: 'APPX 应用', icon: DEFAULT_TYPE_EMOJI.appx },
+  { value: 'provider', label: '平台游戏', icon: DEFAULT_TYPE_EMOJI.provider },
 ]
 
 function typeLabel(type: EntryType): string {
@@ -551,6 +552,26 @@ const iconPathText = computed(() => {
   return ''
 })
 
+// ─── 图标预览三态：图片 → emoji/类型默认图标 → 首字母占位 ───
+// 与列表里的 EntryIcon 同一套兜底逻辑：图片文件缺失或加载失败时不留空白预览框。
+const iconPreviewSrc = computed(() =>
+  form.value.icon.source && form.value.icon.type !== 'emoji'
+    ? resolveAssetUrl(form.value.icon.source)
+    : ''
+)
+/** 加载失败的预览地址；地址变化（换图标/重置）时清空并重新尝试 */
+const iconPreviewFailed = ref('')
+watch(iconPreviewSrc, () => { iconPreviewFailed.value = '' })
+const showIconPreviewImg = computed(
+  () => !!iconPreviewSrc.value && iconPreviewFailed.value !== iconPreviewSrc.value
+)
+/** 预览兜底 emoji：用户 emoji 图标 → 当前类型的默认图标（网址 🌐 等） */
+const iconPreviewEmoji = computed(() =>
+  form.value.icon.type === 'emoji' && form.value.icon.source
+    ? form.value.icon.source
+    : DEFAULT_TYPE_EMOJI[form.value.type] || ''
+)
+
 /** 重新提取按钮的悬浮提示（按类型说明提取来源） */
 const refreshIconTitle = computed(() => {
   switch (form.value.type) {
@@ -866,8 +887,8 @@ watch(() => form.value.type, (newType, oldType) => {
           <label class="form-label">当前图标</label>
           <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
             <div class="icon-preview">
-              <img v-if="form.icon.source && form.icon.type !== 'emoji'" :src="resolveAssetUrl(form.icon.source)" alt="icon" @error="onImgError" @load="onImgLoad" />
-              <span v-else-if="form.icon.type === 'emoji' && form.icon.source" class="icon-emoji-preview">{{ form.icon.source }}</span>
+              <img v-if="showIconPreviewImg" :src="iconPreviewSrc" alt="icon" @error="iconPreviewFailed = iconPreviewSrc" />
+              <span v-else-if="iconPreviewEmoji" class="icon-emoji-preview">{{ iconPreviewEmoji }}</span>
               <span v-else class="icon-placeholder-text">{{ form.name.charAt(0) || '?' }}</span>
             </div>
             <button class="btn" @click="pickIcon">自定义图标...</button>

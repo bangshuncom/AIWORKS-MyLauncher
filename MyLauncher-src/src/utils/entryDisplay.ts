@@ -3,8 +3,20 @@
 // 供 useEntryView 与各视图组件共用，避免同一套判断在多处重写
 // ════════════════════════════════════════════
 
-import type { Entry } from '@/types'
+import type { Entry, EntryType } from '@/types'
 import { resolveAssetUrl } from '@/store'
+
+/** 各条目类型的默认 emoji 图标：无图片图标 / emoji 图标缺失 / 图片加载失败时兜底，
+ *  同时也是新增对话框里类型选择按钮的图标来源（两处共用一份定义，避免漂移） */
+export const DEFAULT_TYPE_EMOJI: Record<EntryType, string> = {
+  program: '📦',
+  url: '🌐',
+  folder: '📁',
+  file: '📄',
+  system: '🛠️',
+  appx: '🏪',
+  provider: '🎮',
+}
 
 /** 图标图片 URL（emoji 类型不返回图片地址） */
 export function getIconPath(entry: Entry): string {
@@ -16,6 +28,11 @@ export function getIconPath(entry: Entry): string {
 export function getIconEmoji(entry: Entry): string {
   if (entry.icon?.type === 'emoji' && entry.icon.source) return entry.icon.source
   return ''
+}
+
+/** 兜底 emoji：优先用户自定义 emoji，其次按类型取默认图标（如网址永远有 🌐） */
+export function getFallbackEmoji(entry: Entry): string {
+  return getIconEmoji(entry) || DEFAULT_TYPE_EMOJI[entry.type] || ''
 }
 
 /** 封面图 URL（未启用封面时返回空串） */

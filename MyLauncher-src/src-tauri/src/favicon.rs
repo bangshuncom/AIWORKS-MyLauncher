@@ -119,7 +119,14 @@ pub(crate) fn fetch_favicon_inner(url: &str, force: bool) -> Result<String, Stri
                         last_err = format!("{} 返回的不是图片", src);
                         continue;
                     }
-                    return save_favicon_bytes(&bytes, &domain);
+                    // 保存（内含尺寸校验：占位图/过小图会返回 Err，换下一个源重试）
+                    match save_favicon_bytes(&bytes, &domain) {
+                        Ok(path) => return Ok(path),
+                        Err(e) => {
+                            last_err = e;
+                            continue;
+                        }
+                    }
                 }
                 Err(e) => last_err = format!("读取响应失败: {}", e),
             },
@@ -133,6 +140,10 @@ pub(crate) fn fetch_favicon_inner(url: &str, force: bool) -> Result<String, Stri
 /// 把 favicon 字节保存到 assets/icons/custom/{domain}.png，返回相对 exe 目录的路径。
 /// 按 domain 命名：同 domain 不同链接共用同一文件（多线程并发写同一目标时容忍最后覆盖，
 /// 内容同为该 domain 的合法 favicon，最终状态一致）。
+///
+/// 质量校验：解码成功后要求最小边 > 2px（favicon 服务对未知域名常返回
+/// 1×1 追踪像素/占位黑图，这类"垃圾图标"一律拒绝，由调用方换下一个源重试）；
+/// 解码失败时仅放行 webp（image crate 未启用 webp 特性，但 WebView2 能渲染）。
 pub(crate) fn save_favicon_bytes(bytes: &[u8], domain: &str) -> Result<String, String> {
     let assets_dir = get_assets_dir()?;
     let icon_dir = assets_dir.join("icons").join("custom");
@@ -140,14 +151,34 @@ pub(crate) fn save_favicon_bytes(bytes: &[u8], domain: &str) -> Result<String, S
 
     let file_path = icon_dir.join(format!("{}.png", safe_domain_filename(domain)));
 
-    // 尝试用 image crate 解码并转为 PNG（统一格式）
     match image::load_from_memory(bytes) {
         Ok(img) => {
-            img.to_rgba8().save(&file_path)
+            let (w, h) = (img.width(), img.height());
+            if w <= 2 || h <= 2 {
+                return Err(format!("图片尺寸过小（{}x{}，疑似占位图）", w, h));
+            }
+            let rgba = img.to_rgba8();
+            // 占位图检测：所有像素完全相同 → 拒绝。
+            // 实测 faviconsnap 对未知域名返回 16×16 全透明图（RGBA(0,0,0,0)×256），
+            // 尺寸校验拦不住（16>2），但内容是"空"的，显示出来就是一块黑/空白。
+            // 真实 favicon 几乎不可能全图单色。
+            let raw = rgba.as_raw();
+            if raw.len() >= 8 {
+                let first = &raw[..4];
+                let uniform = raw.chunks_exact(4).all(|px| px == first);
+                if uniform {
+                    return Err("图片内容为单色/全透明占位图".to_string());
+                }
+            }
+            rgba.save(&file_path)
                 .map_err(|e| format!("保存图标失败: {}", e))?;
         }
         Err(_) => {
-            // 解码失败，直接保存原始字节
+            let is_webp = bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP";
+            if !is_webp {
+                return Err("图片解码失败".to_string());
+            }
+            // webp：解码不支持但 WebView2 可渲染，直接保存原始字节
             fs::write(&file_path, bytes)
                 .map_err(|e| format!("保存图标失败: {}", e))?;
         }
@@ -157,7 +188,11 @@ pub(crate) fn save_favicon_bytes(bytes: &[u8], domain: &str) -> Result<String, S
 }
 
 #[command]
-pub fn fetch_favicon(url: String, force: Option<bool>) -> Result<String, String> {
-    fetch_favicon_inner(&url, force.unwrap_or(false))
+pub async fn fetch_favicon(url: String, force: Option<bool>) -> Result<String, String> {
+    // 网络命令（最坏 3 源 × 2 秒超时）：必须放到阻塞线程池执行，
+    // 否则同步命令跑在主线程，会把整个 UI 卡住数秒
+    tauri::async_runtime::spawn_blocking(move || fetch_favicon_inner(&url, force.unwrap_or(false)))
+        .await
+        .map_err(|e| format!("任务执行失败: {}", e))?
 }
 

@@ -63,7 +63,12 @@ impl IconRefreshResult {
 
 /// 按条目类型分派图标重提取，返回新的图标相对路径（assets/ 相对路径）。
 /// 不修改 JSON 数据（由前端保存），仅生成新图标文件。
-pub(crate) fn refresh_icon_inner(entry: &Entry, current_env_id: &str) -> Result<String, String> {
+///
+/// force 语义：
+/// - true  = 单条重置：url 强制绕过 domain 缓存重新下载（用户明确要刷新）
+/// - false = 批量重置：url 命中 domain 缓存文件直接复用、不联网，
+///           只为缺失/损坏的图标真正下载（批量几百条时绝大多数秒回）
+pub(crate) fn refresh_icon_inner(entry: &Entry, current_env_id: &str, force: bool) -> Result<String, String> {
     match entry.entry_type.as_str() {
         "provider" => {
             // 平台游戏：与 program 一致，从解析出的主程序 exe 提取图标
@@ -102,13 +107,14 @@ pub(crate) fn refresh_icon_inner(entry: &Entry, current_env_id: &str) -> Result<
             }
         }
         "url" => {
-            // 网址类型：多源 favicon 链（a.favicon.im → faviconsnap → 原网址 /favicon.ico，各 2 秒超时）
+            // 网址类型：多源 favicon 链（各 2 秒超时）。
+            // force=true 强制重新下载（单条重置语义）；
+            // force=false 时 domain 缓存文件存在即复用（批量语义：已有图标不重复下载）。
             // 全部失败返回 Err，由调用方跳过该条目（保持原图标不变）
-            // 重置语义 = force：绕过 domain 缓存强制重新下载最新 favicon
             if entry.url.trim().is_empty() {
                 return Err("网址为空".to_string());
             }
-            fetch_favicon_inner(&entry.url, true)
+            fetch_favicon_inner(&entry.url, force)
         }
         "appx" => {
             // 目标存于 relative_path（shell:AppsFolder\{family}!{appid}），app_key 与枚举时推导一致
@@ -159,13 +165,19 @@ pub(crate) fn extract_appx_icon_inner(app_key: &str, shell_uri: &str) -> Result<
     Ok(rel_to_exe_dir(&icon_file))
 }
 
-/// 重新提取条目图标（单条）
+/// 重新提取条目图标（单条）。
+/// async + spawn_blocking：单条重置最坏要等 3 源 × 2 秒网络超时，
+/// 不能跑在主线程（Tauri 同步命令默认主线程执行，会卡住整个 UI）。
 #[command]
-pub fn refresh_entry_icon(entry: Entry, current_env_id: String) -> Result<IconRefreshResult, String> {
-    match refresh_icon_inner(&entry, &current_env_id) {
+pub async fn refresh_entry_icon(entry: Entry, current_env_id: String, force: Option<bool>) -> Result<IconRefreshResult, String> {
+    // 单条重置默认 force=true（绕过缓存）；批量路径可显式传 false 走 domain 缓存
+    let force = force.unwrap_or(true);
+    tauri::async_runtime::spawn_blocking(move || match refresh_icon_inner(&entry, &current_env_id, force) {
         Ok(path) => Ok(IconRefreshResult::ok(path)),
         Err(e) => Ok(IconRefreshResult::err(e)),
-    }
+    })
+    .await
+    .map_err(|e| format!("任务执行失败: {}", e))?
 }
 
 // ─── 批量重新提取图标（多线程 + 进度事件） ───
@@ -202,11 +214,31 @@ pub(crate) struct BatchIconSummary {
 /// 规则与单条 refresh_entry_icon 一致：system 类型直接跳过；
 /// url 类型 favicon 链全失败记为 skipped（保持原图标不变）；其余类型失败记 failed。
 /// 事件：batch-icon-progress（单条完成，payload 含 done/total 与单条结果）。
+///
+/// ⚠️ 必须保持 async：Tauri 同步命令跑在主线程，本函数内部 join 全部工作线程，
+/// 500 条 × 最坏 6 秒/条 会把主线程完全堵死（窗口假死、进度事件送不进前端）。
+/// 用 spawn_blocking 把整个批量过程丢进阻塞线程池，主线程保持响应。
 #[command]
-pub fn batch_refresh_icons(
+pub async fn batch_refresh_icons(
     app: tauri::AppHandle,
     entries: Vec<Entry>,
     current_env_id: String,
+    force: Option<bool>,
+) -> Result<BatchIconSummary, String> {
+    // 默认 force=false（命中本地缓存/已有图标直接复用）；
+    // 前端勾选「强制」时 force=true，忽略缓存全部重新下载/提取
+    let force = force.unwrap_or(false);
+    tauri::async_runtime::spawn_blocking(move || batch_refresh_icons_blocking(app, entries, current_env_id, force))
+        .await
+        .map_err(|e| format!("任务执行失败: {}", e))?
+}
+
+/// 批量重置的实际执行体（阻塞，运行于阻塞线程池）。
+fn batch_refresh_icons_blocking(
+    app: tauri::AppHandle,
+    entries: Vec<Entry>,
+    current_env_id: String,
+    force: bool,
 ) -> Result<BatchIconSummary, String> {
     use std::sync::{Arc, Mutex};
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -240,7 +272,9 @@ pub fn batch_refresh_icons(
                         // 旧 emoji 系统功能条目：无图标来源，跳过
                         ("skipped".to_string(), "系统功能使用 Emoji 图标，无需提取".to_string(), String::new())
                     } else {
-                    match refresh_icon_inner(&entry, &env_id) {
+                    // force 语义：false=命中 domain 缓存直接复用不重复下载；
+                    // true=强制忽略缓存重新下载/提取（前端「强制」勾选框）
+                    match refresh_icon_inner(&entry, &env_id, force) {
                         Ok(path) => ("success".to_string(), String::new(), path),
                         Err(e) if entry.entry_type == "url" =>
                             // url 类型 favicon 链全失败：跳过，保持原图标不变

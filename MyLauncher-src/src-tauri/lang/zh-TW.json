@@ -104,6 +104,8 @@
         "batch.toAbsolute": "轉為絕對路徑",
         "batch.launch": "批次啟動",
         "batch.refreshIcons": "重設圖示",
+        "batch.forceRefresh": "強制",
+        "batch.forceRefreshTip": "勾選後忽略本機已有圖示與快取，全部重新下載/擷取（較慢）",
         "batch.delete": "刪除",
         "batch.exit": "退出批次",
         "batch.deleteConfirm": "確認刪除 {count} 個項目？",

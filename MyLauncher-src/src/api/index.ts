@@ -179,14 +179,14 @@ export async function cleanup_deleted_assets(sources: string[]): Promise<number>
 
 // ─── 图标重新提取 ───
 
-/** 重新提取条目图标（按类型分派：程序/文件夹/文件/网址/APPX） */
-export async function refresh_entry_icon(entry: Entry, currentEnvId: string): Promise<IconRefreshResult> {
-  return invoke<IconRefreshResult>('refresh_entry_icon', { entry, currentEnvId })
+/** 重新提取条目图标（按类型分派：程序/文件夹/文件/网址/APPX）；force=true 绕过缓存强制重取 */
+export async function refresh_entry_icon(entry: Entry, currentEnvId: string, force = true): Promise<IconRefreshResult> {
+  return invoke<IconRefreshResult>('refresh_entry_icon', { entry, currentEnvId, force })
 }
 
-/** 批量重新提取图标（后端多线程，逐条推送 batch-icon-progress 事件，完成后返回整体统计） */
-export async function batch_refresh_icons(entries: Entry[], currentEnvId: string): Promise<BatchIconSummary> {
-  return invoke<BatchIconSummary>('batch_refresh_icons', { entries, currentEnvId })
+/** 批量重新提取图标（后端多线程，逐条推送 batch-icon-progress 事件）；force=true 忽略本地缓存全部重取 */
+export async function batch_refresh_icons(entries: Entry[], currentEnvId: string, force = false): Promise<BatchIconSummary> {
+  return invoke<BatchIconSummary>('batch_refresh_icons', { entries, currentEnvId, force })
 }
 
 // ─── 开机自启 ───

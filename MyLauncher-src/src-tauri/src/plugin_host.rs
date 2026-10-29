@@ -588,8 +588,18 @@ fn is_valid_item_id(id: &str) -> bool {
 
 /// 按平台 ID 查询单个条目（插件 scan-id 能力）。
 /// 查询成功即完成封面落盘与图标提取（单条流程量小，即时处理体验更好）。
+///
+/// async + spawn_blocking：内部包含插件进程调用与封面下载（网络 2 秒超时），
+/// 同步命令跑在主线程会把 UI 卡住数秒。
 #[command]
-pub fn scan_provider_item(provider_id: String, item_id: String) -> Result<ProviderItemResult, String> {
+pub async fn scan_provider_item(provider_id: String, item_id: String) -> Result<ProviderItemResult, String> {
+    tauri::async_runtime::spawn_blocking(move || scan_provider_item_blocking(&provider_id, &item_id))
+        .await
+        .map_err(|e| format!("任务执行失败: {}", e))?
+}
+
+/// 单条平台查询的实际执行体（阻塞，运行于阻塞线程池）。
+fn scan_provider_item_blocking(provider_id: &str, item_id: &str) -> Result<ProviderItemResult, String> {
     let provider_id = provider_id.trim().to_string();
     let item_id = item_id.trim().to_string();
     if !is_valid_plugin_id(&provider_id) {

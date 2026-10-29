@@ -13,6 +13,9 @@ const convertMsg = ref('')
 /** 批量重置图标进度对话框（选中数 > 10 时启用） */
 const showBatchIconDialog = ref(false)
 
+/** 强制重置：勾选后忽略本地已有图标与缓存，全部重新下载/提取 */
+const forceIconRefresh = ref(false)
+
 const BATCH_ICON_THRESHOLD = 10
 
 /** 分类选项：按层级树显示（与 EntryEditor 分类选择器一致，全角空格缩进 + └ 前缀） */
@@ -87,7 +90,7 @@ async function batchRefreshIcons() {
   converting.value = true
   convertMsg.value = ''
   const ids = Array.from(state.selectedIds)
-  const result = await refreshEntriesIcons(ids)
+  const result = await refreshEntriesIcons(ids, forceIconRefresh.value)
   showResult(t('batch.allSkippedIcons'), result)
   converting.value = false
   exitBatchMode()
@@ -137,6 +140,9 @@ function exitBatchMode() {
         <option value="absolute">{{ t('batch.toAbsolute') }}</option>
       </select>
       <button class="btn" @click="batchLaunch" :disabled="converting || selectedCount === 0">▶ {{ t('batch.launch') }}</button>
+      <label class="batch-check" :title="t('batch.forceRefreshTip')">
+        <input type="checkbox" v-model="forceIconRefresh" />{{ t('batch.forceRefresh') }}
+      </label>
       <button class="btn" @click="batchRefreshIcons" :disabled="converting || selectedCount === 0">🔄 {{ t('batch.refreshIcons') }}</button>
       <button class="btn btn-danger" @click="batchDelete" :disabled="selectedCount === 0">{{ t('batch.delete') }}</button>
       <button class="btn" @click="exitBatchMode">{{ t('batch.exit') }}</button>
@@ -146,6 +152,7 @@ function exitBatchMode() {
     <!-- 批量重置图标进度对话框（多线程可视化） -->
     <BatchIconProgressDialog
       v-if="showBatchIconDialog"
+      :force="forceIconRefresh"
       @close="onBatchIconDialogClosed"
     />
   </div>
@@ -209,6 +216,23 @@ function exitBatchMode() {
 
 .batch-select:focus {
   border-color: var(--color-primary);
+}
+
+/* 强制重置勾选框 */
+.batch-check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--color-text);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.batch-check input {
+  cursor: pointer;
+  accent-color: var(--color-primary);
 }
 
 .batch-convert-msg {

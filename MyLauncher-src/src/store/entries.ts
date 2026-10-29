@@ -162,7 +162,9 @@ export async function convertEntriesPathMode(ids: string[], targetMode: 'relativ
 // 都没有的跳过；其余类型调用后端按目标重新提取，
 // 成功后更新条目图标（type 统一记为 extracted——favicon 也存于 assets 内的文件资源）。
 // url 类型多源 favicon 链全部失败时保持原图标不变（跳过），不计失败。
-export async function refreshEntriesIcons(ids: string[]): Promise<{ success: number; failed: number; skipped: number; messages: string[] }> {
+// force=false（默认）：url 命中 domain 缓存直接复用，不重复下载；
+// force=true（勾选「强制」）：忽略本地已有图标与缓存，全部重新下载/提取。
+export async function refreshEntriesIcons(ids: string[], force = false): Promise<{ success: number; failed: number; skipped: number; messages: string[] }> {
   const messages: string[] = []
   let success = 0
   let failed = 0
@@ -203,7 +205,7 @@ export async function refreshEntriesIcons(ids: string[]): Promise<{ success: num
     }
 
     try {
-      const r = await api.refresh_entry_icon(entry, state.currentEnvId)
+      const r = await api.refresh_entry_icon(entry, state.currentEnvId, force)
       if (r.success) {
         state.entries[idx].icon = r.icon_path
           ? { type: 'extracted', source: r.icon_path }

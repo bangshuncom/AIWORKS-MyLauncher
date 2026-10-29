@@ -56,8 +56,23 @@ pub(crate) struct ImportScanSummary {
 /// 构造 Entry 后统一追加写盘一次（避免前端逐条串行）。
 /// 线程模型与 batch_refresh_icons 一致（std::thread，线程数 = min(条目数, 8)）。
 /// 逐条推送 import-progress 事件（payload：done/total/name/status/message）。
+///
+/// ⚠️ 必须保持 async + spawn_blocking：同步命令跑在主线程，内部 join 工作线程
+/// 会把主线程堵死（批量导入时窗口假死，与批量重置图标同一问题）。
 #[command]
-pub fn import_scan_items(
+pub async fn import_scan_items(
+    app: tauri::AppHandle,
+    items: Vec<ExeInfo>,
+    category_id: String,
+    current_env_id: String,
+) -> Result<ImportScanSummary, String> {
+    tauri::async_runtime::spawn_blocking(move || import_scan_items_blocking(app, items, category_id, current_env_id))
+        .await
+        .map_err(|e| format!("任务执行失败: {}", e))?
+}
+
+/// 批量导入的实际执行体（阻塞，运行于阻塞线程池）。
+fn import_scan_items_blocking(
     app: tauri::AppHandle,
     items: Vec<ExeInfo>,
     category_id: String,

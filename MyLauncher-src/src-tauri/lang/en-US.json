@@ -104,6 +104,8 @@
         "batch.toAbsolute": "Convert to absolute",
         "batch.launch": "Batch launch",
         "batch.refreshIcons": "Refresh icons",
+        "batch.forceRefresh": "Force",
+        "batch.forceRefreshTip": "Ignore existing icons and cache, re-download/extract all (slower)",
         "batch.delete": "Delete",
         "batch.exit": "Exit batch",
         "batch.deleteConfirm": "Delete {count} items?",

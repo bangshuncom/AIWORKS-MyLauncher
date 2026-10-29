@@ -5,6 +5,12 @@
 # 便携版程序（不上传）
 MyLauncherPortable/
 
+# 发布产物（[R] 打包出的 zip，本地保留但不上传仓库）
+Release/
+
+# 插件构建产物（源码在 plugins-src/，运行时由打包目录加载，不进仓库）
+plugins/
+
 # 所有以 . 或 _ 开头的目录（.workbuddy/.temp/.vscode/.idea 等）
 .*/
 _*/

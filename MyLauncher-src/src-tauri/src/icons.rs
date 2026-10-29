@@ -489,52 +489,77 @@ pub struct AppxAppInfo {
     pub icon_path: String,
 }
 
-/// 通过 PowerShell Get-StartApps 枚举开始菜单应用（含 APPX/UWP + 传统快捷方式）
-/// Get-StartApps 返回 AppID（AUMID）和 Name，AUMID 形如
-/// "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App" 或 "C:\...\xxx.lnk"
+/// 枚举开始菜单应用（含 APPX/UWP + 传统快捷方式），返回 AUMID（含 !）的 UWP 应用。
+/// 纯 Win32 Shell API 实现（IShellItem 枚举 shell:AppsFolder），不再拉起 powershell：
+/// 原 Get-StartApps 方案是"无签名 exe 调用 powershell"，容易触发杀软行为告警，
+/// 且 powershell 冷启动需 1-2 秒；原生枚举同进程完成，数据与 Get-StartApps 一致。
 #[cfg(windows)]
 pub(crate) fn enumerate_appx_apps() -> Result<Vec<AppxAppInfo>, String> {
-    use std::os::windows::process::CommandExt;
-    use std::process::Command;
-
-    let output = Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-Command",
-               "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Get-StartApps | Select-Object Name, AppID | ConvertTo-Json -Compress"])
-        .creation_flags(0x08000000) // CREATE_NO_WINDOW
-        .output()
-        .map_err(|e| format!("启动 PowerShell 失败: {}", e))?;
-
-    if !output.status.success() {
-        return Err(format!("Get-StartApps 失败: {}", String::from_utf8_lossy(&output.stderr)));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let json: serde_json::Value = match serde_json::from_str(stdout.trim()) {
-        Ok(v) => v,
-        Err(e) => {
-            // UTF-8 解析失败时回退 GBK 解码（旧系统控制台编码）
-            let decoded = encoding_rs::GBK.decode(&output.stdout).0.to_string();
-            serde_json::from_str(decoded.trim())
-                .map_err(|e2| format!("解析 Get-StartApps 输出失败: UTF8({}), GBK({})", e, e2))?
-        }
+    use windows::Win32::System::Com::CoTaskMemFree;
+    use windows::Win32::UI::Shell::{
+        BHID_EnumItems, IEnumShellItems, IShellItem, SIGDN_DESKTOPABSOLUTEPARSING,
+        SIGDN_NORMALDISPLAY,
     };
 
-    // 单个结果时是对象，多个时是数组
-    let items: Vec<serde_json::Value> = match json {
-        serde_json::Value::Array(arr) => arr,
-        obj @ serde_json::Value::Object(_) => vec![obj],
-        _ => Vec::new(),
+    let _com = com_init()?;
+
+    let apps_uri = HSTRING::from("shell:AppsFolder");
+    let folder: IShellItem = unsafe {
+        SHCreateItemFromParsingName(PCWSTR(apps_uri.as_ptr()), None)
+            .map_err(|e| format!("打开 shell:AppsFolder 失败: {}", e))?
+    };
+    let enum_items: IEnumShellItems = unsafe {
+        folder
+            .BindToHandler(None, &BHID_EnumItems)
+            .map_err(|e| format!("枚举 AppsFolder 失败: {}", e))?
+    };
+
+    // PWSTR（CoTaskMem 分配的 UTF-16 串）→ String，读后必须 CoTaskMemFree 释放
+    let pwstr_to_string = |p: windows::core::PWSTR| -> String {
+        unsafe {
+            if p.0.is_null() {
+                return String::new();
+            }
+            let mut len = 0usize;
+            while *p.0.add(len) != 0 {
+                len += 1;
+            }
+            let s = String::from_utf16_lossy(std::slice::from_raw_parts(p.0, len));
+            CoTaskMemFree(Some(p.0 as *const core::ffi::c_void));
+            s
+        }
     };
 
     let mut apps = Vec::new();
-    for item in items {
-        let name = item.get("Name").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-        let appid = item.get("AppID").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-        if name.is_empty() || appid.is_empty() {
-            continue;
+    loop {
+        let mut slot: [Option<IShellItem>; 1] = std::array::from_fn(|_| None);
+        let mut fetched: u32 = 0;
+        let hr = unsafe { enum_items.Next(&mut slot, Some(&mut fetched)) };
+        if hr.is_err() || fetched == 0 {
+            break;
         }
-        // 只要 AUMID 格式（含 ! 的即 APPX/UWP 应用），排除 .lnk 路径
-        if !appid.contains('!') {
+        let Some(item) = slot[0].take() else { break };
+
+        // 显示名走 NORMALDISPLAY；解析名走 DESKTOPABSOLUTEPARSING
+        let name = unsafe { item.GetDisplayName(SIGDN_NORMALDISPLAY) }
+            .map(pwstr_to_string)
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let parsing = unsafe { item.GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING) }
+            .map(pwstr_to_string)
+            .unwrap_or_default();
+
+        // 解析名形如 "shell:AppsFolder\<AUMID>" 或 "::{CLSID_AppsFolder}\<AUMID>"，
+        // AUMID 本身不含反斜杠，取最后一段即为 AUMID；
+        // .lnk 条目的解析名是文件路径（无 !），与 Get-StartApps 的 AppID 规则一致，在此排除
+        let appid = parsing
+            .rsplit('\\')
+            .next()
+            .unwrap_or(&parsing)
+            .trim()
+            .to_string();
+        if name.is_empty() || appid.is_empty() || !appid.contains('!') {
             continue;
         }
 
@@ -563,4 +588,3 @@ pub(crate) fn enumerate_appx_apps() -> Result<Vec<AppxAppInfo>, String> {
 pub fn list_appx_apps() -> Result<Vec<AppxAppInfo>, String> {
     enumerate_appx_apps()
 }
-

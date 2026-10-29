@@ -9,6 +9,11 @@ const emit = defineEmits<{
   (e: 'close'): void
 }>()
 
+const props = defineProps<{
+  /** 强制重置：忽略本地已有图标与缓存，全部重新下载/提取 */
+  force?: boolean
+}>()
+
 /** 批量模式选中的条目 */
 const entries = state.entries.filter(e => state.selectedIds.has(e.id))
 
@@ -91,7 +96,7 @@ async function start() {
       done.value = p.done
     })
 
-    const summary = await api.batch_refresh_icons(payload, state.currentEnvId)
+    const summary = await api.batch_refresh_icons(payload, state.currentEnvId, props.force === true)
 
     // 事件推送可能有乱序/遗漏，最终以命令返回值为准整体校正一次
     for (const r of summary.results) {
@@ -155,7 +160,7 @@ function statusClass(s: RowStatus): string {
   <div class="dialog-overlay" @click.self="close">
     <div class="dialog batch-icon-dialog">
       <div class="dialog-header">
-        <span>批量重置图标</span>
+        <span>批量重置图标{{ props.force ? '（强制）' : '' }}</span>
         <button class="btn btn-icon" :disabled="running" @click="close">✕</button>
       </div>
 
